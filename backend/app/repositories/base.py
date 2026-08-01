@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+from contextlib import AbstractAsyncContextManager
+from typing import Protocol
+
+from app.domain.models import InvestorPersona, SourceDocument, Stock
+
+
+class ResearchRepository(Protocol):
+    async def initialize(self) -> None: ...
+
+    async def healthcheck(self) -> bool: ...
+
+    def ticker_lock(self, ticker: str) -> AbstractAsyncContextManager[None]: ...
+
+    async def upsert_stock(self, stock: Stock) -> None: ...
+
+    async def get_stock(self, ticker: str) -> Stock | None: ...
+
+    async def follow_stock(self, user_id: str, ticker: str) -> bool: ...
+
+    async def list_followed_tickers(
+        self, user_id: str | None = None
+    ) -> tuple[str, ...]: ...
+
+    async def list_stocks_for_user(self, user_id: str) -> tuple[Stock, ...]: ...
+
+    async def has_document_hash(self, ticker: str, content_hash: str) -> bool: ...
+
+    async def insert_document(
+        self, document: SourceDocument, embedding: tuple[float, ...]
+    ) -> bool: ...
+
+    async def count_documents(self, ticker: str) -> int: ...
+
+    async def list_documents(
+        self, ticker: str | None = None
+    ) -> tuple[SourceDocument, ...]: ...
+
+    async def search_documents(
+        self,
+        query_embedding: tuple[float, ...],
+        *,
+        tickers: tuple[str, ...],
+        limit: int,
+    ) -> tuple[SourceDocument, ...]: ...
+
+    async def get_persona(self, user_id: str) -> InvestorPersona: ...
+
+    async def save_persona(
+        self, persona: InvestorPersona, embedding: tuple[float, ...]
+    ) -> None: ...
+
+    async def upsert_user(
+        self, user_id: str, email: str, name: str | None, picture: str | None
+    ) -> None: ...
+
+    async def get_user(self, user_id: str) -> dict[str, str | None] | None: ...
+
+    async def create_session(
+        self, session_id: str, user_id: str, expires_at: float
+    ) -> None: ...
+
+    async def get_session_user(self, session_id: str, now: float) -> str | None: ...
+
+    async def delete_session(self, session_id: str) -> None: ...

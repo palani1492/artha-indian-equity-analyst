@@ -1,0 +1,25 @@
+project_name = "sentellent"
+environment  = "production"
+aws_region   = "ap-south-1"
+
+# Keep false for the lowest-cost challenge deployment. Set true to place ECS
+# tasks in private subnets behind a single NAT gateway.
+enable_nat_gateway = false
+
+# CI sets this to the full Git commit SHA.
+image_tag = "latest"
+
+# Required: add an ACM certificate in the same region and its canonical origin.
+# certificate_arn = "arn:aws:acm:ap-south-1:123456789012:certificate/..."
+# public_base_url = "https://stocks.example.com"
+
+database_instance_class     = "db.t4g.micro"
+frontend_desired_count      = 1
+backend_desired_count       = 1
+service_max_count           = 2
+ingestion_schedule_expression = "rate(6 hours)"
+oauth_callback_rate_limit      = 100
+
+tags = {
+  Owner = "your-name"
+}

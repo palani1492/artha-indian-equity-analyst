@@ -1,0 +1,9 @@
+project_name      = "sentellent"
+environment       = "production"
+aws_region        = "ap-south-1"
+github_repository = "your-github-user/your-repository"
+github_environment = "production"
+
+# If the AWS account already has the GitHub Actions provider:
+# create_github_oidc_provider       = false
+# existing_github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"

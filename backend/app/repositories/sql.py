@@ -1,0 +1,393 @@
+from __future__ import annotations
+
+import asyncio
+import math
+from collections import defaultdict
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    delete,
+    select,
+    text,
+)
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from app.domain.models import (
+    InvestorPersona,
+    SourceDocument,
+    Stock,
+)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class StockRow(Base):
+    __tablename__ = "stocks"
+    ticker: Mapped[str] = mapped_column(String(20), primary_key=True)
+    exchange: Mapped[str] = mapped_column(String(3), nullable=False)
+    bse_id: Mapped[str | None] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    sector: Mapped[str] = mapped_column(String(80), nullable=False)
+    price_inr: Mapped[Any] = mapped_column(Numeric(20, 4), nullable=False)
+    market_cap_crore: Mapped[Any | None] = mapped_column(Numeric(24, 4))
+    pe_ratio: Mapped[Any | None] = mapped_column(Numeric(16, 4))
+    debt_to_equity: Mapped[Any | None] = mapped_column(Numeric(16, 4))
+    dividend_yield: Mapped[Any | None] = mapped_column(Numeric(16, 4))
+    roe: Mapped[Any | None] = mapped_column(Numeric(16, 4))
+    revenue_growth: Mapped[Any | None] = mapped_column(Numeric(16, 4))
+    sentiment: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class DocumentRow(Base):
+    __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("ticker", "content_hash", name="uq_documents_ticker_hash"),
+    )
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    ticker: Mapped[str] = mapped_column(
+        ForeignKey("stocks.ticker", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    sentiment: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    impact: Mapped[str] = mapped_column(String(40), nullable=False)
+    event_tag: Mapped[str] = mapped_column(String(80), nullable=False)
+    mentioned_tickers: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+
+
+class PersonaRow(Base):
+    __tablename__ = "personas"
+    user_id: Mapped[str] = mapped_column(String(320), primary_key=True)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class FollowRow(Base):
+    __tablename__ = "stock_follows"
+    user_id: Mapped[str] = mapped_column(String(320), primary_key=True)
+    ticker: Mapped[str] = mapped_column(
+        ForeignKey("stocks.ticker", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class UserRow(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(320), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
+    name: Mapped[str | None] = mapped_column(String(160))
+    picture: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class SessionRow(Base):
+    __tablename__ = "sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[float] = mapped_column(Float, nullable=False, index=True)
+
+
+class SqlAlchemyResearchRepository:
+    def __init__(self, database_url: str) -> None:
+        normalized_url = database_url.replace(
+            "postgresql://", "postgresql+asyncpg://", 1
+        )
+        self.engine: AsyncEngine = create_async_engine(
+            normalized_url, pool_pre_ping=True
+        )
+        self._sessions = async_sessionmaker(self.engine, expire_on_commit=False)
+        self._local_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+    async def initialize(self) -> None:
+        async with self.engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+            if self.engine.dialect.name == "postgresql":
+                vector_installed = await connection.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')"
+                    )
+                )
+                documents_table = await connection.scalar(
+                    text("SELECT to_regclass('public.documents') IS NOT NULL")
+                )
+                if not vector_installed or not documents_table:
+                    raise RuntimeError(
+                        "Database migrations or pgvector extension are missing"
+                    )
+
+    async def healthcheck(self) -> bool:
+        try:
+            await self.initialize()
+            return True
+        except (SQLAlchemyError, OSError, RuntimeError):
+            return False
+
+    @asynccontextmanager
+    async def ticker_lock(self, ticker: str):
+        if self.engine.dialect.name != "postgresql":
+            async with self._local_locks[ticker]:
+                yield
+            return
+        async with self.engine.connect() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_lock(hashtext(:ticker))"), {"ticker": ticker}
+            )
+            try:
+                yield
+            finally:
+                await connection.execute(
+                    text("SELECT pg_advisory_unlock(hashtext(:ticker))"),
+                    {"ticker": ticker},
+                )
+
+    async def upsert_stock(self, stock: Stock) -> None:
+        values = stock.model_dump(mode="python")
+        values["exchange"] = stock.exchange.value
+        async with self._sessions.begin() as session:
+            row = await session.get(StockRow, stock.ticker)
+            if row is None:
+                session.add(StockRow(**values))
+            else:
+                for key, value in values.items():
+                    setattr(row, key, value)
+
+    async def get_stock(self, ticker: str) -> Stock | None:
+        async with self._sessions() as session:
+            row = await session.get(StockRow, ticker)
+            return self._stock(row) if row else None
+
+    async def follow_stock(self, user_id: str, ticker: str) -> bool:
+        async with self._sessions.begin() as session:
+            existing = await session.get(
+                FollowRow, {"user_id": user_id, "ticker": ticker}
+            )
+            if existing:
+                return False
+            session.add(FollowRow(user_id=user_id, ticker=ticker))
+            return True
+
+    async def list_followed_tickers(
+        self, user_id: str | None = None
+    ) -> tuple[str, ...]:
+        query = select(FollowRow.ticker).distinct().order_by(FollowRow.ticker)
+        if user_id is not None:
+            query = query.where(FollowRow.user_id == user_id)
+        async with self._sessions() as session:
+            return tuple((await session.scalars(query)).all())
+
+    async def list_stocks_for_user(self, user_id: str) -> tuple[Stock, ...]:
+        query = (
+            select(StockRow)
+            .join(FollowRow, FollowRow.ticker == StockRow.ticker)
+            .where(FollowRow.user_id == user_id)
+            .order_by(StockRow.ticker)
+        )
+        async with self._sessions() as session:
+            return tuple(
+                self._stock(row) for row in (await session.scalars(query)).all()
+            )
+
+    async def has_document_hash(self, ticker: str, content_hash: str) -> bool:
+        query = (
+            select(DocumentRow.id)
+            .where(
+                DocumentRow.ticker == ticker, DocumentRow.content_hash == content_hash
+            )
+            .limit(1)
+        )
+        async with self._sessions() as session:
+            return (await session.scalar(query)) is not None
+
+    async def insert_document(
+        self, document: SourceDocument, embedding: tuple[float, ...]
+    ) -> bool:
+        if await self.has_document_hash(document.ticker, document.content_hash):
+            return False
+        values = document.model_dump(mode="python")
+        values.update(
+            kind=document.kind.value, url=str(document.url), embedding=list(embedding)
+        )
+        async with self._sessions.begin() as session:
+            session.add(DocumentRow(**values))
+        return True
+
+    async def count_documents(self, ticker: str) -> int:
+        query = select(DocumentRow.id).where(DocumentRow.ticker == ticker)
+        async with self._sessions() as session:
+            return len((await session.scalars(query)).all())
+
+    async def list_documents(
+        self, ticker: str | None = None
+    ) -> tuple[SourceDocument, ...]:
+        query = select(DocumentRow).order_by(
+            DocumentRow.published_at.desc(), DocumentRow.id
+        )
+        if ticker is not None:
+            query = query.where(DocumentRow.ticker == ticker)
+        async with self._sessions() as session:
+            return tuple(
+                self._document(row) for row in (await session.scalars(query)).all()
+            )
+
+    async def search_documents(
+        self,
+        query_embedding: tuple[float, ...],
+        *,
+        tickers: tuple[str, ...],
+        limit: int,
+    ) -> tuple[SourceDocument, ...]:
+        if not tickers:
+            return ()
+        if self.engine.dialect.name == "postgresql":
+            query = (
+                select(DocumentRow)
+                .where(DocumentRow.ticker.in_(tickers))
+                .order_by(DocumentRow.embedding.cosine_distance(list(query_embedding)))
+                .limit(limit)
+            )
+            async with self._sessions() as session:
+                return tuple(
+                    self._document(row) for row in (await session.scalars(query)).all()
+                )
+        query = select(DocumentRow).where(DocumentRow.ticker.in_(tickers))
+        async with self._sessions() as session:
+            documents = tuple((await session.scalars(query)).all())
+        scored = sorted(
+            (
+                (
+                    self._cosine(query_embedding, tuple(row.embedding)),
+                    self._document(row),
+                )
+                for row in documents
+                if row.ticker in tickers
+            ),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        return tuple(document for _, document in scored[:limit])
+
+    async def get_persona(self, user_id: str) -> InvestorPersona:
+        async with self._sessions() as session:
+            row = await session.get(PersonaRow, user_id)
+            return (
+                InvestorPersona.model_validate(row.data)
+                if row
+                else InvestorPersona(user_id=user_id)
+            )
+
+    async def save_persona(
+        self, persona: InvestorPersona, embedding: tuple[float, ...]
+    ) -> None:
+        payload = persona.model_dump(mode="json")
+        async with self._sessions.begin() as session:
+            row = await session.get(PersonaRow, persona.user_id)
+            values = {
+                "data": payload,
+                "embedding": list(embedding),
+                "version": persona.version,
+                "updated_at": persona.updated_at,
+            }
+            if row is None:
+                session.add(PersonaRow(user_id=persona.user_id, **values))
+            else:
+                for key, value in values.items():
+                    setattr(row, key, value)
+
+    async def upsert_user(
+        self, user_id: str, email: str, name: str | None, picture: str | None
+    ) -> None:
+        async with self._sessions.begin() as session:
+            row = await session.get(UserRow, user_id)
+            if row is None:
+                session.add(
+                    UserRow(id=user_id, email=email, name=name, picture=picture)
+                )
+            else:
+                row.email, row.name, row.picture = email, name, picture
+
+    async def get_user(self, user_id: str) -> dict[str, str | None] | None:
+        async with self._sessions() as session:
+            row = await session.get(UserRow, user_id)
+            if row is None:
+                return None
+            return {
+                "id": row.id,
+                "email": row.email,
+                "name": row.name,
+                "picture": row.picture,
+            }
+
+    async def create_session(
+        self, session_id: str, user_id: str, expires_at: float
+    ) -> None:
+        async with self._sessions.begin() as session:
+            session.add(
+                SessionRow(id=session_id, user_id=user_id, expires_at=expires_at)
+            )
+
+    async def get_session_user(self, session_id: str, now: float) -> str | None:
+        async with self._sessions() as session:
+            row = await session.get(SessionRow, session_id)
+            return row.user_id if row and row.expires_at > now else None
+
+    async def delete_session(self, session_id: str) -> None:
+        async with self._sessions.begin() as session:
+            await session.execute(delete(SessionRow).where(SessionRow.id == session_id))
+
+    @staticmethod
+    def _stock(row: StockRow) -> Stock:
+        return Stock.model_validate(
+            {
+                column.name: getattr(row, column.name)
+                for column in StockRow.__table__.columns
+            }
+        )
+
+    @staticmethod
+    def _document(row: DocumentRow) -> SourceDocument:
+        values = {
+            column.name: getattr(row, column.name)
+            for column in DocumentRow.__table__.columns
+            if column.name != "embedding"
+        }
+        return SourceDocument.model_validate(values)
+
+    @staticmethod
+    def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+        numerator = sum(a * b for a, b in zip(left, right, strict=False))
+        denominator = math.sqrt(sum(a * a for a in left)) * math.sqrt(
+            sum(b * b for b in right)
+        )
+        return numerator / denominator if denominator else 0.0

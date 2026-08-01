@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentellent-backend"
+version = "0.1.0"
+description = "Contextual, grounded Indian-equity research API"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+omit = ["app/jobs/*"]

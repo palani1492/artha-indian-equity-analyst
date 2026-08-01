@@ -1,0 +1,226 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Quality gates
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Build and deploy to AWS
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_STATE_KEY: ${{ vars.TF_STATE_KEY || 'production/terraform.tfstate' }}
+      PROJECT_NAME: ${{ vars.PROJECT_NAME || 'sentellent' }}
+      TF_VAR_project_name: ${{ vars.PROJECT_NAME || 'sentellent' }}
+      TF_VAR_environment: production
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
+      TF_VAR_public_base_url: ${{ vars.PUBLIC_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment variables
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          : "${AWS_REGION:?Set the AWS_REGION repository variable}"
+          : "${AWS_ROLE_ARN:?Set the AWS_ROLE_ARN repository variable}"
+          : "${TF_STATE_BUCKET:?Set the TF_STATE_BUCKET repository variable}"
+          : "${ACM_CERTIFICATE_ARN:?Set the ACM_CERTIFICATE_ARN repository variable}"
+          : "${PUBLIC_BASE_URL:?Set the PUBLIC_BASE_URL repository variable}"
+          : "${SESSION_SECRET:?Set the SESSION_SECRET production environment secret}"
+          : "${GOOGLE_CLIENT_ID:?Set the GOOGLE_CLIENT_ID production environment secret}"
+          : "${GOOGLE_CLIENT_SECRET:?Set the GOOGLE_CLIENT_SECRET production environment secret}"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Initialize remote Terraform state
+        run: >-
+          terraform init
+          -backend-config="bucket=${TF_STATE_BUCKET}"
+          -backend-config="key=${TF_STATE_KEY}"
+          -backend-config="region=${AWS_REGION}"
+          -backend-config="encrypt=true"
+          -backend-config="use_lockfile=true"
+        working-directory: infra
+
+      - name: Ensure registries and secret container exist
+        run: >-
+          terraform apply -auto-approve
+          -target=aws_ecr_repository.frontend
+          -target=aws_ecr_repository.backend
+          -target=aws_secretsmanager_secret.application
+        working-directory: infra
+
+      - name: Seed runtime secrets without Terraform state exposure
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          secret_arn="$(terraform output -raw application_secret_arn)"
+          jq -n \
+            --arg openai "${OPENAI_API_KEY}" \
+            --arg google_id "${GOOGLE_CLIENT_ID}" \
+            --arg google_secret "${GOOGLE_CLIENT_SECRET}" \
+            --arg session "${SESSION_SECRET}" \
+            '{OPENAI_API_KEY:$openai,GOOGLE_CLIENT_ID:$google_id,GOOGLE_CLIENT_SECRET:$google_secret,SESSION_SECRET:$session}' \
+            > "${RUNNER_TEMP}/runtime-secrets.json"
+          aws secretsmanager put-secret-value \
+            --secret-id "${secret_arn}" \
+            --secret-string "file://${RUNNER_TEMP}/runtime-secrets.json" >/dev/null
+          rm -f "${RUNNER_TEMP}/runtime-secrets.json"
+        working-directory: infra
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Read ECR repository URLs
+        id: repositories
+        run: |
+          echo "frontend=$(terraform output -raw frontend_ecr_repository_url)" >> "${GITHUB_OUTPUT}"
+          echo "backend=$(terraform output -raw backend_ecr_repository_url)" >> "${GITHUB_OUTPUT}"
+        working-directory: infra
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: linux/amd64
+          push: true
+          build-args: NEXT_PUBLIC_API_URL=
+          tags: |
+            ${{ steps.repositories.outputs.frontend }}:${{ github.sha }}
+            ${{ steps.repositories.outputs.frontend }}:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.repositories.outputs.backend }}:${{ github.sha }}
+            ${{ steps.repositories.outputs.backend }}:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Fail on critical ECR scan findings
+        run: |
+          for repository in \
+            "$(terraform output -raw frontend_ecr_repository_name)" \
+            "$(terraform output -raw backend_ecr_repository_name)"; do
+            aws ecr wait image-scan-complete \
+              --repository-name "${repository}" \
+              --image-id imageTag="${GITHUB_SHA}"
+            critical="$(aws ecr describe-image-scan-findings \
+              --repository-name "${repository}" \
+              --image-id imageTag="${GITHUB_SHA}" \
+              --query 'imageScanFindings.findingSeverityCounts.CRITICAL' \
+              --output text)"
+            if [[ "${critical}" != "None" && "${critical}" != "0" ]]; then
+              echo "${repository} has ${critical} critical image findings" >&2
+              exit 1
+            fi
+          done
+        working-directory: infra
+
+      - name: Register backend release without updating the service
+        run: >-
+          terraform apply -auto-approve
+          -target=aws_ecs_cluster.application
+          -target=aws_ecs_task_definition.backend
+        working-directory: infra
+
+      - name: Export migration task configuration
+        run: |
+          echo "ECS_CLUSTER=$(terraform output -raw ecs_cluster_name)" >> "${GITHUB_ENV}"
+          echo "BACKEND_TASK_DEFINITION=$(terraform output -raw backend_task_definition_arn)" >> "${GITHUB_ENV}"
+          echo "ECS_SUBNETS=$(terraform output -json ecs_subnet_ids | jq -r 'join(",")')" >> "${GITHUB_ENV}"
+          echo "BACKEND_SECURITY_GROUP=$(terraform output -raw backend_security_group_id)" >> "${GITHUB_ENV}"
+          echo "ECS_ASSIGN_PUBLIC_IP=$(terraform output -raw ecs_assign_public_ip)" >> "${GITHUB_ENV}"
+        working-directory: infra
+
+      - name: Run database migrations
+        run: bash scripts/run-migrations.sh
+
+      - name: Terraform plan
+        run: terraform plan -out=tfplan
+        working-directory: infra
+
+      - name: Upload Terraform plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-terraform-plan-${{ github.sha }}
+          path: infra/tfplan
+          retention-days: 7
+
+      - name: Apply infrastructure and roll out migrated services
+        run: terraform apply -auto-approve tfplan
+        working-directory: infra
+
+      - name: Confirm services are stable
+        run: |
+          cluster="$(terraform output -raw ecs_cluster_name)"
+          frontend="$(terraform output -raw frontend_service_name)"
+          backend="$(terraform output -raw backend_service_name)"
+          aws ecs wait services-stable --cluster "${cluster}" --services "${frontend}" "${backend}"
+        working-directory: infra
+
+      - name: Smoke test deployment
+        run: |
+          application_url="$(terraform output -raw application_url)"
+          for attempt in {1..12}; do
+            oauth_config="$(curl --fail --silent --show-error "${application_url}/api/v1/auth/google/config" || true)"
+            if curl --fail --silent --show-error "${application_url}/health" >/dev/null && \
+               curl --fail --silent --show-error "${application_url}/health/ready" >/dev/null && \
+               jq -e '.configured == true' <<<"${oauth_config}" >/dev/null && \
+               curl --fail --silent --show-error "${application_url}/" >/dev/null; then
+              echo "Deployment is healthy at ${application_url}"
+              exit 0
+            fi
+            echo "Health check attempt ${attempt}/12 failed"
+            sleep 10
+          done
+          exit 1
+        working-directory: infra
