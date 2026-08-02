@@ -145,16 +145,18 @@ test("sends persona updates in the FastAPI schema and logs out with POST", async
   const memory = page.locator("#investor-memory");
   await memory.getByRole("button", { name: "Edit" }).click();
   await memory.getByLabel("Risk appetite").selectOption("Aggressive");
-  await memory.getByLabel("Investment style").fill("Growth");
-  await memory.getByLabel("Prioritise").fill("Technology, Momentum");
-  await memory.getByLabel("Avoid").fill("High debt");
+  await memory.getByLabel("Investment style").selectOption("Growth");
+  await memory.getByRole("button", { name: "Information Technology", exact: true }).click();
+  await memory.getByRole("button", { name: "Reliable dividends", exact: true }).click();
+  await memory.getByRole("button", { name: "Durable cash flows", exact: true }).click();
+  await memory.getByRole("button", { name: "Low leverage", exact: true }).click();
   await memory.getByRole("button", { name: "Save memory" }).click();
 
   await expect.poll(() => capture.persona).toMatchObject({
     risk_tolerance: "aggressive",
     dividend_focused: false,
     avoid_high_debt: true,
-    preferred_sectors: ["Technology", "Momentum"],
+    preferred_sectors: ["Durable cash flows", "Low leverage"],
   });
 
   await page.locator('summary[aria-label="Open account menu for Reviewer"]').click();
