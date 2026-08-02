@@ -697,46 +697,120 @@ function PersonaEditor({
   onChange: (next: Persona) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const riskOptions = ["Conservative", "Moderate", "Aggressive"];
+  const horizonOptions = ["Under 1 year", "1 to 3 years", "3 to 5 years", "5+ years"];
+  const styleOptions = [
+    "Quality at a fair price",
+    "Growth",
+    "Dividend and quality",
+    "Value",
+    "Special situations",
+  ];
+  const focusOptions = [
+    "Durable cash flows",
+    "Low leverage",
+    "Governance",
+    "Reliable dividends",
+    "Pricing power",
+    "Competitive moat",
+    "Earnings growth",
+  ];
+  const avoidOptions = [
+    "High debt",
+    "Uncited momentum calls",
+    "Weak governance",
+    "Excessive valuation",
+    "Cyclical earnings",
+    "Small-cap volatility",
+  ];
+
+  function optionsWithCurrent(options: string[], current: string) {
+    return options.includes(current) ? options : [current, ...options];
+  }
+
+  function togglePreference(key: "focus" | "avoid", option: string) {
+    const current = value[key];
+    const next = current.includes(option)
+      ? current.filter((item) => item !== option)
+      : [...current, option];
+    onChange({ ...value, [key]: next });
+  }
+
   return (
     <form className="persona-editor" id="persona-editor" onSubmit={onSubmit}>
+      <p className="persona-editor-intro">
+        Tune the context Artha uses when it ranks companies and explains trade-offs.
+      </p>
       <label>
-        Risk appetite
+        <span>Risk appetite</span>
         <select value={value.risk} onChange={(event) => onChange({ ...value, risk: event.target.value })}>
-          <option>Conservative</option>
-          <option>Moderate</option>
-          <option>Aggressive</option>
+          {optionsWithCurrent(riskOptions, value.risk).map((option) => <option key={option}>{option}</option>)}
         </select>
       </label>
       <label>
-        Horizon
-        <input value={value.horizon} onChange={(event) => onChange({ ...value, horizon: event.target.value })} />
+        <span>Investment horizon</span>
+        <select value={value.horizon} onChange={(event) => onChange({ ...value, horizon: event.target.value })}>
+          {optionsWithCurrent(horizonOptions, value.horizon).map((option) => <option key={option}>{option}</option>)}
+        </select>
       </label>
       <label>
-        Investment style
-        <input value={value.style} onChange={(event) => onChange({ ...value, style: event.target.value })} />
+        <span>Investment style</span>
+        <select value={value.style} onChange={(event) => onChange({ ...value, style: event.target.value })}>
+          {optionsWithCurrent(styleOptions, value.style).map((option) => <option key={option}>{option}</option>)}
+        </select>
       </label>
-      <label>
-        Prioritise
-        <input
-          value={value.focus.join(", ")}
-          onChange={(event) => onChange({
-            ...value,
-            focus: event.target.value.split(",").map((item) => item.trim()).filter(Boolean),
-          })}
-        />
-      </label>
-      <label>
-        Avoid
-        <input
-          value={value.avoid.join(", ")}
-          onChange={(event) => onChange({
-            ...value,
-            avoid: event.target.value.split(",").map((item) => item.trim()).filter(Boolean),
-          })}
-        />
-      </label>
+      <PreferencePicker
+        legend="Prioritise"
+        options={focusOptions}
+        values={value.focus}
+        onToggle={(option) => togglePreference("focus", option)}
+      />
+      <PreferencePicker
+        legend="Avoid"
+        options={avoidOptions}
+        values={value.avoid}
+        tone="avoid"
+        onToggle={(option) => togglePreference("avoid", option)}
+      />
       <button className="primary-button" type="submit">Save memory</button>
     </form>
+  );
+}
+
+function PreferencePicker({
+  legend,
+  options,
+  values,
+  tone,
+  onToggle,
+}: {
+  legend: string;
+  options: string[];
+  values: string[];
+  tone?: "avoid";
+  onToggle: (option: string) => void;
+}) {
+  const availableOptions = [...new Set([...values, ...options])];
+  return (
+    <fieldset className={`persona-choice-group ${tone === "avoid" ? "is-avoid" : ""}`}>
+      <legend>{legend}</legend>
+      <div className="persona-choice-list">
+        {availableOptions.map((option) => {
+          const selected = values.includes(option);
+          return (
+            <button
+              className={`persona-choice ${selected ? "is-selected" : ""}`}
+              type="button"
+              key={option}
+              aria-pressed={selected}
+              onClick={() => onToggle(option)}
+            >
+              {option}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 
