@@ -351,11 +351,7 @@ export function ArthaWorkspace() {
       <a className="skip-link" href="#research-thread">Skip to research</a>
       <header className="topbar">
         <div className="brand-lockup" aria-label="Artha home">
-          <span className="brand-mark" aria-hidden="true">A</span>
-          <span>
-            <strong>Artha</strong>
-            <small>Indian equity research</small>
-          </span>
+          <strong>Artha</strong>
         </div>
         <nav className="primary-nav" aria-label="Primary navigation">
           <a href="#following">Following</a>

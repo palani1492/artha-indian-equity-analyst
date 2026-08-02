@@ -10,42 +10,19 @@
   border-bottom: 1px solid var(--line-strong);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(16px);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent);
 }
 
 .brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   width: max-content;
 }
 
-.brand-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--accent);
-  color: #f7fbf8;
-  font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.brand-lockup > span:last-child {
-  display: grid;
-  line-height: 1.15;
-}
-
 .brand-lockup strong {
-  font-size: 16px;
-  letter-spacing: -0.02em;
-}
-
-.brand-lockup small {
-  margin-top: 3px;
-  color: var(--ink-soft);
-  font-size: 10.5px;
+  font-size: 19px;
+  font-weight: 780;
+  letter-spacing: -0.045em;
 }
 
 .primary-nav {
@@ -76,6 +53,10 @@
   color: var(--ink);
 }
 
+.primary-nav a[aria-current="page"] {
+  box-shadow: inset 0 -2px var(--accent);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -87,6 +68,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-subtle);
   color: var(--ink-soft);
   font-size: 10.5px;
   font-weight: 650;
