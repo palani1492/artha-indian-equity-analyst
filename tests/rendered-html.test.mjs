@@ -74,6 +74,11 @@ test("ships real interaction, fallback, and inclusive state handling", async () 
   assert.match(client, /role="alert"/);
   assert.match(client, /aria-expanded/);
   assert.match(api, /Intl\.NumberFormat\("en-IN"/);
+  assert.match(api, /formatGreeting/);
+  assert.match(api, /formatRelativeTime/);
+  assert.match(client, /updatedAt/);
+  assert.match(client, /createdAt/);
+  assert.match(client, /publishedAt/);
   assert.match(client, /localStorage/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /prefers-color-scheme:\s*dark/);

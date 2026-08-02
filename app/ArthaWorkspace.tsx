@@ -23,7 +23,9 @@ import {
   apiAnswer,
   authUser,
   demoAnswer,
+  formatGreeting,
   formatPrice,
+  formatRelativeTime,
   inferPersona,
   isRecord,
   personaValue,
@@ -61,11 +63,50 @@ export function ArthaWorkspace() {
   const [theme, setTheme] = useState<ThemePreference>("system");
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
+  const [welcomeTitle, setWelcomeTitle] = useState("Your research desk is ready.");
 
   const activeStock = useMemo(
     () => stocks.find((stock) => stock.symbol === activeSymbol) ?? stocks[0],
     [activeSymbol, stocks],
   );
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const now = Date.now();
+      setWelcomeTitle(`${formatGreeting(new Date(now))}. Your research desk is ready.`);
+      setStocks((current) =>
+        current.map((stock, index) =>
+          stock.updatedAt
+            ? stock
+            : {
+                ...stock,
+                updatedAt: new Date(now - [12, 18, 26, 31][index % 4] * 60_000).toISOString(),
+              },
+        ),
+      );
+      setSources((current) =>
+        current.map((source, index) =>
+          source.publishedAt
+            ? source
+            : {
+                ...source,
+                publishedAt: new Date(now - [96 * 60, 48 * 60, 180][index % 3] * 60_000).toISOString(),
+              },
+        ),
+      );
+      setMessages((current) =>
+        current.map((message) =>
+          message.createdAt ? message : { ...message, createdAt: new Date(now).toISOString() },
+        ),
+      );
+    });
+    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -153,6 +194,7 @@ export function ArthaWorkspace() {
       role: "user",
       text: cleanQuestion,
       createdLabel: "Now",
+      createdAt: new Date().toISOString(),
     };
     const nextPersona = inferPersona(cleanQuestion, persona);
     if (nextPersona !== persona) persistPersona(nextPersona);
@@ -256,6 +298,7 @@ export function ArthaWorkspace() {
         tone: "Watch",
         indexedDocuments: 0,
         updatedLabel: "Ingestion queued",
+        updatedAt: new Date().toISOString(),
       } satisfies Stock);
     setStocks((current) => [...current, nextStock]);
     setActiveSymbol(symbol);
@@ -293,7 +336,7 @@ export function ArthaWorkspace() {
     setStocks((current) =>
       current.map((stock) =>
         stock.symbol === activeStock.symbol
-          ? { ...stock, updatedLabel: "Just refreshed" }
+          ? { ...stock, updatedLabel: "Just refreshed", updatedAt: new Date().toISOString() }
           : stock,
       ),
     );
@@ -433,7 +476,11 @@ export function ArthaWorkspace() {
           <div className="ingestion-summary">
             <div>
               <span>Source refresh</span>
-              <strong>{activeStock?.updatedLabel ?? "No ticker selected"}</strong>
+              <strong>
+                {formatRelativeTime(activeStock?.updatedAt, clock) ??
+                  activeStock?.updatedLabel ??
+                  "No ticker selected"}
+              </strong>
             </div>
             <button type="button" onClick={handleIngest} disabled={!activeStock || ingesting}>
               {ingesting ? "Refreshing" : "Refresh"}
@@ -473,9 +520,11 @@ export function ArthaWorkspace() {
                 <article className={`message ${message.role}`} key={message.id}>
                   <div className="message-meta">
                     <span>{message.role === "assistant" ? "Artha research" : "You"}</span>
-                    <time>{message.createdLabel}</time>
+                    <time>{formatRelativeTime(message.createdAt, clock) ?? message.createdLabel}</time>
                   </div>
-                  {message.title ? <h3>{message.title}</h3> : null}
+                  {message.title ? (
+                    <h3>{message.id === "welcome" ? welcomeTitle : message.title}</h3>
+                  ) : null}
                   <p>{message.text}</p>
                   {message.citations?.length ? (
                     <div className="citation-row" aria-label="Citations">
@@ -600,7 +649,9 @@ export function ArthaWorkspace() {
                         <div className="source-detail">
                           <p>{source.excerpt}</p>
                           <div>
-                            <span>{source.dateLabel}</span>
+                            <span>
+                              {formatRelativeTime(source.publishedAt, clock) ?? source.dateLabel}
+                            </span>
                             <a href={source.url} target="_blank" rel="noreferrer">Open source</a>
                           </div>
                         </div>

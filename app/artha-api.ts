@@ -141,6 +141,9 @@ export function stockList(payload: unknown): Stock[] | null {
         tone,
         indexedDocuments: Number(item.indexedDocuments ?? item.document_count ?? 0),
         updatedLabel: String(item.updatedLabel ?? item.updated_at ?? "Recently"),
+        updatedAt: typeof (item.updatedAt ?? item.updated_at) === "string"
+          ? String(item.updatedAt ?? item.updated_at)
+          : undefined,
       } satisfies Stock,
     ];
   });
@@ -215,6 +218,9 @@ export function sourceList(payload: unknown): ResearchSource[] | null {
             ? "Exchange filing"
             : "News",
         dateLabel: String(item.dateLabel ?? item.published_at ?? "Recently indexed"),
+        publishedAt: typeof (item.publishedAt ?? item.published_at) === "string"
+          ? String(item.publishedAt ?? item.published_at)
+          : undefined,
         url: String(item.url ?? item.link ?? "#"),
         excerpt: String(
           item.excerpt ?? item.snippet ?? item.content ?? "Open the source for full context.",
@@ -251,6 +257,30 @@ export function authUser(payload: unknown): AuthUser | null {
 
 export function formatPrice(value: number): string {
   return value > 0 ? INR_FORMATTER.format(value) : "Quote pending";
+}
+
+export function formatGreeting(date = new Date()): string {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return "Good morning";
+  if (hour >= 12 && hour < 17) return "Good afternoon";
+  if (hour >= 17 && hour < 22) return "Good evening";
+  return "Good night";
+}
+
+export function formatRelativeTime(value: string | undefined, now = Date.now()): string | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  const elapsedSeconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (elapsedSeconds < 45) return "just now";
+  if (elapsedSeconds < 90) return "1 min ago";
+  if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)} min ago`;
+  if (elapsedSeconds < 86400) return `${Math.floor(elapsedSeconds / 3600)}h ago`;
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(timestamp);
 }
 
 export function inferPersona(text: string, current: Persona): Persona {
@@ -296,6 +326,7 @@ export function demoAnswer(question: string, persona: Persona): ChatMessage {
       label: String(index + 1),
     })),
     createdLabel: "Now",
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -327,5 +358,9 @@ export function apiAnswer(payload: unknown): ChatMessage | null {
     text: answer,
     citations,
     createdLabel: "Now",
+    createdAt:
+      typeof payload.created_at === "string"
+        ? payload.created_at
+        : new Date().toISOString(),
   };
 }

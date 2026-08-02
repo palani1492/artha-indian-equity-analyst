@@ -57,23 +57,23 @@ test.describe("Artha critical research flows", () => {
     const memory = page.locator("#investor-memory");
     await memory.getByRole("button", { name: "Edit" }).click();
     await memory.getByLabel("Risk appetite").selectOption("Conservative");
-    await memory.getByLabel("Horizon").fill("7 to 10 years");
-    await memory.getByLabel("Investment style").fill("Dividend and quality");
-    await memory.getByLabel("Prioritise").fill("Reliable dividends, Low leverage");
+    await memory.getByLabel("Investment horizon").selectOption("5+ years");
+    await memory.getByLabel("Investment style").selectOption("Dividend and quality");
+    await memory.getByRole("button", { name: "Reliable dividends", exact: true }).click();
     await memory.getByRole("button", { name: "Save memory" }).click();
 
     await expect(page.locator('.context-notice[role="alert"]')).toContainText(
       "Investor memory updated for future research.",
     );
     await expect(memory).toContainText("Conservative");
-    await expect(memory).toContainText("7 to 10 years");
+    await expect(memory).toContainText("5+ years");
     await expect(memory).toContainText("Dividend and quality");
     await expect(memory).toContainText("Reliable dividends");
 
     await page.reload();
     await expect(page.getByText("Sample data", { exact: true })).toBeVisible();
     await expect(memory).toContainText("Conservative");
-    await expect(memory).toContainText("7 to 10 years");
+    await expect(memory).toContainText("5+ years");
   });
 
   test("follows a new BSE ticker and makes it active", async ({ page }) => {

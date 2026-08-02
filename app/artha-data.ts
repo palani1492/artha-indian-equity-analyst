@@ -10,6 +10,7 @@ export type Stock = {
   tone: MarketTone;
   indexedDocuments: number;
   updatedLabel: string;
+  updatedAt?: string;
 };
 
 export type Persona = {
@@ -27,6 +28,7 @@ export type ResearchSource = {
   title: string;
   kind: "Fundamentals" | "News" | "Exchange filing";
   dateLabel: string;
+  publishedAt?: string;
   url: string;
   excerpt: string;
 };
@@ -43,6 +45,7 @@ export type ChatMessage = {
   title?: string;
   citations?: Citation[];
   createdLabel: string;
+  createdAt?: string;
 };
 
 export const DEMO_STOCKS: Stock[] = [
@@ -138,7 +141,7 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    title: "Good morning. Your research desk is ready.",
+    title: "Your research desk is ready.",
     text:
       "I can compare followed NSE and BSE companies against your investor memory. Every factual claim will point to an indexed source.",
     createdLabel: "Now",
