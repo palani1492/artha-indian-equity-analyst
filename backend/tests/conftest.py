@@ -15,7 +15,9 @@ from app.settings import Settings
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(auth_mode="demo", app_env="test")
+    # Keep the unauthenticated-path tests deterministic even when CI provides
+    # DEMO_USER_ID for other demo-mode fixtures.
+    return Settings(auth_mode="demo", app_env="test", demo_user_id=None)
 
 
 @pytest.fixture
