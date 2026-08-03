@@ -37,7 +37,7 @@ resource "aws_db_instance" "postgres" {
   identifier = local.name
 
   engine         = "postgres"
-  engine_version = "16.4"
+  engine_version = "16.14"
   instance_class = var.database_instance_class
 
   db_name  = var.database_name
