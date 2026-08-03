@@ -28,9 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.domain.models import (
+    DocumentKind,
     InvestorPersona,
     SourceDocument,
     Stock,
+    canonical_source_url,
 )
 
 
@@ -53,6 +55,7 @@ class StockRow(Base):
     roe: Mapped[Any | None] = mapped_column(Numeric(16, 4))
     revenue_growth: Mapped[Any | None] = mapped_column(Numeric(16, 4))
     sentiment: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    change_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -243,13 +246,23 @@ class SqlAlchemyResearchRepository:
     async def insert_document(
         self, document: SourceDocument, embedding: tuple[float, ...]
     ) -> bool:
-        if await self.has_document_hash(document.ticker, document.content_hash):
-            return False
         values = document.model_dump(mode="python")
         values.update(
             kind=document.kind.value, url=str(document.url), embedding=list(embedding)
         )
         async with self._sessions.begin() as session:
+            duplicate_query = select(DocumentRow).where(
+                DocumentRow.ticker == document.ticker,
+                (
+                    (DocumentRow.content_hash == document.content_hash)
+                    | (
+                        (DocumentRow.kind == DocumentKind.NEWS.value)
+                        & (DocumentRow.url == str(document.url))
+                    )
+                ),
+            )
+            if await session.scalar(duplicate_query) is not None:
+                return False
             session.add(DocumentRow(**values))
         return True
 
@@ -292,6 +305,32 @@ class SqlAlchemyResearchRepository:
             return tuple(
                 self._document(row) for row in (await session.scalars(query)).all()
             )
+
+    async def deduplicate_documents(self, ticker: str | None = None) -> int:
+        query = select(DocumentRow).order_by(
+            DocumentRow.published_at.desc(), DocumentRow.id.desc()
+        )
+        if ticker is not None:
+            query = query.where(DocumentRow.ticker == ticker)
+        async with self._sessions.begin() as session:
+            rows = list((await session.scalars(query)).all())
+            seen: set[tuple[str, str, str]] = set()
+            stale: list[DocumentRow] = []
+            for row in rows:
+                identity = (
+                    row.ticker,
+                    row.kind,
+                    canonical_source_url(row.url)
+                    if row.kind == DocumentKind.NEWS.value
+                    else row.kind,
+                )
+                if identity in seen:
+                    stale.append(row)
+                else:
+                    seen.add(identity)
+            for row in stale:
+                await session.delete(row)
+            return len(stale)
 
     async def search_documents(
         self,

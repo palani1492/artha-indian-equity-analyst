@@ -131,7 +131,7 @@ test("adapts the canonical FastAPI contract and links citations to retrieved doc
 
   await expect(page.getByText("Live data", { exact: true })).toBeVisible();
   await expect(page.getByText("TCS", { exact: true }).first()).toBeVisible();
-  await expect(page.getByLabel("TCS current sample quote")).toContainText("₹3,042.25");
+  await expect(page.getByLabel("TCS current quote")).toContainText("₹3,042.25");
   await expect(page.locator("#investor-memory")).toContainText("Conservative");
   await expect(page.locator("#investor-memory")).toContainText("Dividend and quality");
   await page.getByLabel("Ask Artha about an Indian equity").fill("How does TCS fit?");

@@ -52,3 +52,14 @@ async def test_untrusted_rss_prompt_injection_cannot_change_grounded_draft() -> 
     draft = "I don't have that in the ingested data."
     generator = ClaimPreservingAnswerGenerator(PromptInjectedGenerator())
     assert await generator.generate(draft, (source,)) == draft
+
+
+class SafeRewriteGenerator:
+    async def generate(self, draft: str, sources: tuple) -> str:
+        return "The latest TCS quote is INR 4,125.50 [1]."
+
+
+async def test_claim_preserving_generator_allows_safe_grounded_rephrasing() -> None:
+    draft = "TCS trades at INR 4,125.50 [1]."
+    generator = ClaimPreservingAnswerGenerator(SafeRewriteGenerator())
+    assert await generator.generate(draft, ()) == "The latest TCS quote is INR 4,125.50 [1]."

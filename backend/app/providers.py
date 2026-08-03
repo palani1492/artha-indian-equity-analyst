@@ -139,6 +139,7 @@ class DemoMarketDataProvider:
             roe=Decimal(roe),
             revenue_growth=Decimal(growth),
             sentiment=sentiment,
+            change_pct=0.0,
         )
         now = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
         fundamentals = SourceDocument.create(
@@ -242,6 +243,11 @@ class LiveIndianMarketDataProvider:
         dividend_yield = self._decimal(info.get("dividendYield"))
         roe = self._decimal(info.get("returnOnEquity"))
         revenue_growth = self._decimal(info.get("revenueGrowth"))
+        change_pct = self._decimal(
+            info.get("regularMarketChangePercent")
+            or info.get("regularMarketChangePercentRaw")
+            or info.get("changePercent")
+        )
         return Stock(
             ticker=symbol,
             exchange=exchange,
@@ -262,6 +268,7 @@ class LiveIndianMarketDataProvider:
             revenue_growth=revenue_growth * Decimal(100)
             if revenue_growth is not None
             else None,
+            change_pct=float(change_pct or 0),
         )
 
     async def _fetch_feed(self, url: str, stock: Stock) -> tuple[SourceDocument, ...]:
@@ -314,6 +321,7 @@ class LiveIndianMarketDataProvider:
                     sentiment=self._sentiment(combined),
                     impact="medium",
                     event_tag="rss-news",
+                    dedupe_key=self.canonicalize_url(raw_url),
                 )
             )
         return tuple(matches)
@@ -351,11 +359,12 @@ class LiveIndianMarketDataProvider:
         ):
             if value is not None:
                 fields.append(f"{label} is {value}{suffix}.")
+        exchange_suffix = "NS" if stock.exchange is Exchange.NSE else "BO"
         return SourceDocument.create(
             ticker=stock.ticker,
             kind=DocumentKind.FUNDAMENTALS,
             title=f"{stock.name} live fundamentals",
-            url=f"https://finance.yahoo.com/quote/{stock.ticker}.NS/",
+            url=f"https://finance.yahoo.com/quote/{stock.ticker}.{exchange_suffix}/",
             content=" ".join(fields),
             published_at=datetime.now(UTC),
             event_tag="live-fundamentals",

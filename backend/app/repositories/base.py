@@ -43,6 +43,8 @@ class ResearchRepository(Protocol):
         self, ticker: str | None = None
     ) -> tuple[SourceDocument, ...]: ...
 
+    async def deduplicate_documents(self, ticker: str | None = None) -> int: ...
+
     async def search_documents(
         self,
         query_embedding: tuple[float, ...],

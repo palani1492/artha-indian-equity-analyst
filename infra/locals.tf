@@ -20,7 +20,7 @@ locals {
   backend_base_environment = {
     APP_ENV              = var.environment
     MARKET_DATA_PROVIDER = "live"
-    AI_PROVIDER          = "local"
+    AI_PROVIDER          = lower(var.ai_provider)
     DB_HOST              = aws_db_instance.postgres.address
     DB_PORT              = tostring(aws_db_instance.postgres.port)
     DB_NAME              = var.database_name

@@ -56,6 +56,7 @@ class IngestionService:
                     inserted += 1
                 else:
                     skipped += 1
+            await self._repository.deduplicate_documents(ticker)
             return IngestionResult(
                 ticker=ticker,
                 inserted=inserted,

@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_chat_model: str = "gpt-4.1-mini"
     openai_embedding_model: str = "text-embedding-3-small"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
     ai_provider: str = "local"
     market_data_provider: str = "demo"
     rss_feeds: Annotated[tuple[str, ...], NoDecode] = (

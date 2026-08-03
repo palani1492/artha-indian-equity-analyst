@@ -6,10 +6,33 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 TICKER_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9&.-]{0,19}$")
+TRACKING_QUERY_KEYS = {
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "gclid",
+}
+
+
+def canonical_source_url(url: str | object) -> str:
+    parts = urlsplit(str(url).strip())
+    query = urlencode(
+        sorted(
+            (key, value)
+            for key, value in parse_qsl(parts.query)
+            if key.lower() not in TRACKING_QUERY_KEYS
+        )
+    )
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, "")
+    )
 
 
 class Exchange(StrEnum):
@@ -62,6 +85,7 @@ class Stock(BaseModel):
     roe: Decimal | None = None
     revenue_growth: Decimal | None = None
     sentiment: float = Field(default=0.0, ge=-1.0, le=1.0)
+    change_pct: float = Field(default=0.0, ge=-100.0, le=100.0)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator("ticker")

@@ -43,6 +43,7 @@ import {
 
 type ConnectionMode = "connecting" | "live" | "demo" | "error";
 type ThemePreference = "system" | "light" | "dark";
+const AUTO_REFRESH_MS = 120_000;
 
 export function ArthaWorkspace() {
   const [stocks, setStocks] = useState<Stock[]>(DEMO_STOCKS);
@@ -139,16 +140,21 @@ export function ArthaWorkspace() {
     void Promise.allSettled([
       requestFirst(["/api/v1/stocks", "/api/stocks"]),
       requestFirst(["/api/v1/persona", "/api/persona"]),
-      requestFirst(["/api/v1/sources", "/api/sources"]),
       requestAuth(),
     ]).then((results) => {
       if (!active) return;
       let successfulRequests = 0;
-      const [stockResult, personaResult, sourceResult, authResult] = results;
+      const [stockResult, personaResult, authResult] = results;
+      let hydratedStocks: Stock[] | null = null;
       if (stockResult.status === "fulfilled") {
         successfulRequests += 1;
-        const nextStocks = stockList(stockResult.value);
-        if (nextStocks) setStocks(nextStocks);
+        hydratedStocks = stockList(stockResult.value);
+        if (hydratedStocks) {
+          setStocks(hydratedStocks);
+          if (!hydratedStocks.some((stock) => `${stock.exchange}:${stock.symbol}` === activeKey)) {
+            setActiveKey(hydratedStocks[0] ? `${hydratedStocks[0].exchange}:${hydratedStocks[0].symbol}` : "");
+          }
+        }
       }
       if (personaResult.status === "fulfilled") {
         successfulRequests += 1;
@@ -158,15 +164,12 @@ export function ArthaWorkspace() {
           setPersonaDraft(nextPersona);
         }
       }
-      if (sourceResult.status === "fulfilled") {
-        successfulRequests += 1;
-        const nextSources = sourceList(sourceResult.value);
-        if (nextSources) setSources(nextSources);
-      }
       if (successfulRequests > 0) {
         setConnection("live");
         setMessages([]);
         setLastCitations([]);
+        const initialTicker = hydratedStocks?.[0]?.symbol;
+        if (initialTicker) void refreshSources(initialTicker, true);
       } else {
         if (ALLOW_DEMO_FALLBACK) {
           setConnection("demo");
@@ -211,7 +214,45 @@ export function ArthaWorkspace() {
       active = false;
       window.cancelAnimationFrame(localStateFrame);
     };
+    // Initial hydration is intentionally one-shot; later changes use the refresh loop below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (connection !== "live" || authState !== "authenticated" || stocks.length === 0) {
+      return;
+    }
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const payload = await requestFirst(["/api/v1/refresh", "/api/refresh"], {
+          method: "POST",
+        });
+        if (disposed) return;
+        const nextStocks = isRecord(payload) ? stockList(payload.stocks) : null;
+        if (nextStocks) setStocks(nextStocks);
+        const refreshedActive = nextStocks?.find(
+          (stock) => `${stock.exchange}:${stock.symbol}` === activeKey,
+        ) ?? nextStocks?.[0];
+        if (refreshedActive) await refreshSources(refreshedActive.symbol, true);
+      } catch {
+        // Keep the last verified snapshot visible; the next interval retries.
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), AUTO_REFRESH_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void refresh();
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+    // refreshSources is an event helper; the interval is intentionally keyed to workspace state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, authState, connection, stocks.length]);
 
   function persistPersona(nextPersona: Persona) {
     setPersona(nextPersona);
@@ -219,8 +260,8 @@ export function ArthaWorkspace() {
     window.localStorage.setItem("artha-persona", JSON.stringify(nextPersona));
   }
 
-  async function refreshSources(ticker?: string) {
-    if (connection !== "live") return;
+  async function refreshSources(ticker?: string, force = false) {
+    if (!force && connection !== "live") return;
     const query = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
     try {
       const payload = await requestFirst([
@@ -369,6 +410,15 @@ export function ArthaWorkspace() {
     setFollowStatus(`${symbol} added. Fundamentals and news are queued.`);
   }
 
+  function handleSelectStock(stock: Stock) {
+    setActiveKey(`${stock.exchange}:${stock.symbol}`);
+    setPendingUnfollow(null);
+    setMessages([]);
+    setLastCitations([]);
+    setSources([]);
+    void refreshSources(stock.symbol);
+  }
+
   async function handleUnfollow(stock: Stock) {
     const key = `${stock.exchange}:${stock.symbol}`;
     if (pendingUnfollow !== key) {
@@ -418,6 +468,9 @@ export function ArthaWorkspace() {
             exchange: activeStock.exchange,
           }),
         });
+        const refreshedStocks = await requestFirst(["/api/v1/stocks", "/api/stocks"]);
+        const nextStocks = stockList(refreshedStocks);
+        if (nextStocks) setStocks(nextStocks);
         await refreshSources(activeStock.symbol);
       } catch {
         if (!ALLOW_DEMO_FALLBACK) {
@@ -433,7 +486,7 @@ export function ArthaWorkspace() {
     }
     setStocks((current) =>
       current.map((stock) =>
-        stock.symbol === activeStock.symbol
+        stock.symbol === activeStock.symbol && stock.exchange === activeStock.exchange
           ? { ...stock, updatedLabel: "Just refreshed", updatedAt: new Date().toISOString() }
           : stock,
       ),
@@ -561,7 +614,7 @@ export function ArthaWorkspace() {
                     <button
                       className="stock-select"
                       type="button"
-                      onClick={() => setActiveKey(`${stock.exchange}:${stock.symbol}`)}
+                      onClick={() => handleSelectStock(stock)}
                       aria-pressed={isActive}
                       aria-label={`${stock.symbol} ${stock.exchange} / ${stock.sector} ${formatPrice(stock.price)} ${stock.changePct >= 0 ? "+" : ""}${stock.changePct.toFixed(2)}%`}
                     >
@@ -592,12 +645,13 @@ export function ArthaWorkspace() {
 
           <div className="ingestion-summary">
             <div>
-              <span>Source refresh</span>
+              <span>Live source refresh</span>
               <strong>
                 {formatRelativeTime(activeStock?.updatedAt, clock) ??
                   activeStock?.updatedLabel ??
                   "No ticker selected"}
               </strong>
+              <small>Automatic every 2 minutes</small>
             </div>
             <button type="button" onClick={handleIngest} disabled={!activeStock || ingesting}>
               {ingesting ? "Refreshing" : "Refresh"}
@@ -612,7 +666,7 @@ export function ArthaWorkspace() {
               <h2 id="desk-title">Ask, compare, decide what to study next</h2>
             </div>
             {activeStock ? (
-              <div className="active-quote" aria-label={`${activeStock.symbol} current sample quote`}>
+                <div className="active-quote" aria-label={`${activeStock.symbol} current quote`}>
                 <span>{activeStock.exchange}: {activeStock.symbol}</span>
                 <strong>{formatPrice(activeStock.price)}</strong>
                 <small className={activeStock.changePct >= 0 ? "positive" : "negative"}>

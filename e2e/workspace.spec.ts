@@ -20,8 +20,8 @@ test.describe("Artha critical research flows", () => {
 
     await expect(reliance).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByText("Research desk / RELIANCE", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("RELIANCE current sample quote")).toContainText("NSE: RELIANCE");
-    await expect(page.getByLabel("RELIANCE current sample quote")).toContainText("₹1,398.40");
+    await expect(page.getByLabel("RELIANCE current quote")).toContainText("NSE: RELIANCE");
+    await expect(page.getByLabel("RELIANCE current quote")).toContainText("₹1,398.40");
   });
 
   test("answers a research question with citations backed by visible sources", async ({ page }) => {
@@ -89,6 +89,6 @@ test.describe("Artha critical research flows", () => {
     await expect(sbin).toHaveAttribute("aria-pressed", "true");
     await expect(sbin).toContainText("BSE / New research coverage");
     await expect(page.getByText("Research desk / SBIN", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("SBIN current sample quote")).toContainText("Quote pending");
+    await expect(page.getByLabel("SBIN current quote")).toContainText("Quote pending");
   });
 });

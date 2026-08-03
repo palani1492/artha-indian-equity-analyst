@@ -70,6 +70,12 @@ class FollowResponse(BaseModel):
     stock: Stock
 
 
+class RefreshResponse(BaseModel):
+    results: tuple[IngestionResult, ...]
+    stocks: tuple[Stock, ...]
+    failed: tuple[str, ...] = ()
+
+
 class UnfollowResponse(BaseModel):
     ticker: str
     followed: bool = False
@@ -322,6 +328,39 @@ def create_app(container: Container | None = None) -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
             ) from error
 
+    @app.post("/api/v1/refresh", response_model=RefreshResponse)
+    @app.post("/api/refresh", response_model=RefreshResponse)
+    async def refresh_followed(
+        user_id: Annotated[str, Depends(_user_id)]
+    ) -> RefreshResponse:
+        await dependencies.limiter.check(
+            "refresh", user_id, dependencies.settings.rate_limit_mutation_requests
+        )
+        results: list[IngestionResult] = []
+        failed: list[str] = []
+        for followed_ticker in await dependencies.repository.list_followed_tickers(
+            user_id
+        ):
+            try:
+                results.append(await dependencies.ingestion.ingest(followed_ticker))
+            except (
+                KeyError,
+                LookupError,
+                OSError,
+                RuntimeError,
+                TimeoutError,
+                TypeError,
+                ValueError,
+            ):
+                # A single upstream ticker must not prevent other followed
+                # equities from refreshing in the same automatic pass.
+                failed.append(followed_ticker)
+        return RefreshResponse(
+            results=tuple(results),
+            stocks=await dependencies.repository.list_stocks_for_user(user_id),
+            failed=tuple(failed),
+        )
+
     @app.get("/api/v1/sources", response_model=tuple[SourceDocument, ...])
     @app.get("/api/sources", response_model=tuple[SourceDocument, ...])
     async def sources(
@@ -329,6 +368,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         ticker: str | None = Query(default=None, max_length=20),
     ) -> tuple[SourceDocument, ...]:
         normalized = normalize_ticker(ticker)[0] if ticker else None
+        await dependencies.repository.deduplicate_documents(normalized)
         return await dependencies.repository.list_documents(normalized)
 
     async def chat(payload: ChatRequest, user_id: str) -> ChatResult:

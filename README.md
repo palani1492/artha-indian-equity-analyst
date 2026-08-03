@@ -11,9 +11,9 @@ Terraform, and a main-branch GitHub Actions workflow builds immutable images,
 runs migrations, rolls out ECS services, and smoke-tests the public application.
 
 > **Current repository status:** the full application and deployment automation
-> are implemented and locally verified. No live URL or cloud screenshots are
-> claimed in this README until the stack has actually been deployed in the
-> submitter's AWS and Google Cloud accounts.
+> are implemented and deployed at `https://palani.cloud`. Cloud-console and
+> CI screenshots should be attached to the submission separately with secret
+> values hidden.
 
 ## What reviewers can exercise
 
@@ -37,6 +37,9 @@ runs migrations, rolls out ECS services, and smoke-tests the public application.
 - Starter questions are generated from the active/followed universe rather than
   hard-coded to a particular company. “What changed this week?” prioritizes the
   newest retrieved news and states clearly when no matching news exists.
+- Signed-in workspaces automatically refresh all followed tickers every two
+  minutes and refresh again when the browser returns to the foreground. The
+  manual Refresh control remains available as an explicit “refresh now” action.
 
 The default `demo` data provider is deterministic, free, and network-independent
 for evaluation. `MARKET_DATA_PROVIDER=live` enables yfinance quotes/fundamentals
@@ -56,7 +59,7 @@ flowchart LR
   ALB --> API["FastAPI + LangGraph on ECS Fargate"]
   API --> DB[("RDS PostgreSQL + pgvector")]
   API --> Sources["yfinance + Indian financial RSS"]
-  API -. optional .-> OpenAI["OpenAI embeddings / prose pass"]
+  API -. optional .-> AI["Gemini or OpenAI prose/tagging pass"]
   Scheduler["EventBridge Scheduler"] -->|"idempotent refresh task"| API
   GHA["GitHub Actions via OIDC"] --> ECR["ECR images"]
   GHA --> Terraform["Terraform plan / apply"]
@@ -76,12 +79,13 @@ from work that does not:
 5. Run the grounding guard; unsupported numeric or qualitative claims become a
    safe fallback instead of reaching the user.
 
-The deployed default remains deterministic and grounded (`AI_PROVIDER=local`),
-so the challenge demo never depends on a paid model or invents a response when
-an LLM is unavailable. The backend already supports an optional OpenAI prose
-pass via `OPENAI_API_KEY`; a free Gemini API key can be added as a separate
-provider later, but its quota and model availability are account-dependent and
-should be treated as a demo enhancement rather than a reliability dependency.
+The deployed default remains deterministic and grounded (`AI_PROVIDER=local`)
+until a provider key is deliberately enabled. The backend supports optional
+OpenAI and Gemini prose/tagging passes; either provider is wrapped by a
+claim-preserving rewrite check and the independent grounding guard, with local
+fallback when a key is absent or a quota is exceeded. Gemini uses the stable
+`gemini-2.5-flash` model by default and its API key is stored only in Secrets
+Manager/GitHub environment secrets.
 
 Ingestion uses normalized URLs, content hashes, a unique database constraint,
 cached embeddings, and a per-ticker PostgreSQL advisory lock. Manual and
@@ -161,6 +165,7 @@ the pgvector extension.
 | `POST` | `/api/v1/stocks/{ticker}/follow` | Follow and idempotently ingest a ticker |
 | `DELETE` | `/api/v1/stocks/{ticker}/follow` | Remove a ticker from the current watchlist |
 | `POST` | `/api/v1/stocks/{ticker}/ingest` | Refresh one ticker's fundamentals and news |
+| `POST` | `/api/v1/refresh` | Automatically refresh every followed ticker and return hydrated quotes |
 | `GET` | `/api/v1/sources?ticker=...` | List indexed sources for a ticker |
 | `POST` | `/api/v1/chat` | Run the contextual, grounded graph |
 
@@ -251,7 +256,8 @@ Environment secrets:
 
 - `SESSION_SECRET` (required)
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (required for reviewer login)
-- `OPENAI_API_KEY` (optional; deterministic generation remains available)
+- `OPENAI_API_KEY` (optional)
+- `GEMINI_API_KEY` (optional; set the `AI_PROVIDER` repository variable to `gemini` to enable it)
 
 Protect the `production` environment so only `main` can deploy. Point the public
 domain at the ALB before testing Google OAuth.

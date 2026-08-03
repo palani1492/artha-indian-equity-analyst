@@ -32,7 +32,8 @@ function unwrap(value: unknown): unknown {
 
 async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 5500);
+  const timeoutMs = init?.method && init.method !== "GET" ? 30_000 : 8_000;
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${API_ORIGIN}${path}`, {
       ...init,
@@ -135,7 +136,13 @@ export function stockList(payload: unknown): Stock[] | null {
     if (!isRecord(item)) return [];
     const rawSymbol = item.symbol ?? item.ticker;
     if (typeof rawSymbol !== "string") return [];
-    const change = Number(item.changePct ?? item.change_pct ?? item.change ?? 0);
+    const change = Number(
+      item.changePct ??
+        item.change_pct ??
+        item.change ??
+        item.regularMarketChangePercent ??
+        0,
+    );
     const rawTone = String(item.tone ?? item.sentiment ?? "Watch");
     const tone =
       rawTone.toLowerCase().includes("construct") ||
@@ -226,7 +233,7 @@ export function sourceList(payload: unknown): ResearchSource[] | null {
       ? payload.sources
       : null;
   if (!raw) return null;
-  return raw.flatMap((item, index) => {
+  const parsed = raw.flatMap((item, index) => {
     if (!isRecord(item)) return [];
     const sourceKind = String(item.kind ?? item.type ?? "News");
     return [
@@ -250,6 +257,34 @@ export function sourceList(payload: unknown): ResearchSource[] | null {
       } satisfies ResearchSource,
     ];
   });
+  const seen = new Set<string>();
+  return parsed.filter((source) => {
+    const key = `${source.kind}|${source.title.trim().toLowerCase()}|${canonicalSourceUrl(source.url)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function canonicalSourceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    for (const key of [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "gclid",
+    ]) {
+      url.searchParams.delete(key);
+    }
+    url.hash = "";
+    url.pathname = url.pathname.replace(/\/$/, "");
+    return url.toString();
+  } catch {
+    return value.trim().toLowerCase();
+  }
 }
 
 function publisherFromUrl(value: unknown): string {

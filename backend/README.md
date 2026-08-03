@@ -1,6 +1,6 @@
 # Sentellent backend
 
-FastAPI + LangGraph backend for grounded Indian-equity research. The default demo provider is deterministic and network-free. Production live mode uses yfinance for INR-market fundamentals and rate-limited configurable Indian financial RSS feeds. OpenAI generation/embeddings are optional; provider errors fall back to deterministic local behavior.
+FastAPI + LangGraph backend for grounded Indian-equity research. The default demo provider is deterministic and network-free. Production live mode uses yfinance for INR-market fundamentals and rate-limited configurable Indian financial RSS feeds. OpenAI or Gemini generation/tagging is optional; provider errors fall back to deterministic local behavior.
 
 ## Local development
 
@@ -24,5 +24,9 @@ For a no-database demo, remove `DATABASE_URL`; data remains in memory for the pr
 python -m app.jobs.ingest --all-followed
 ```
 
-The canonical API is under `/api/v1`; unversioned aliases exist for the frontend. `GET /health` is public for load balancers.
+The authenticated `POST /api/v1/refresh` route performs the same idempotent
+refresh for every followed ticker and returns hydrated quote rows for the UI's
+automatic refresh loop. Source listing compacts duplicate fundamentals and
+syndicated news by stable source identity before returning evidence.
 
+The canonical API is under `/api/v1`; unversioned aliases exist for the frontend. `GET /health` is public for load balancers.

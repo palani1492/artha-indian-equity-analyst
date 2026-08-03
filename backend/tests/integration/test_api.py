@@ -4,11 +4,10 @@ from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
 import jwt
-from fastapi.testclient import TestClient
-
 from app.api import create_app
 from app.container import build_container
 from app.settings import Settings
+from fastapi.testclient import TestClient
 
 
 def test_health_is_public(client) -> None:
@@ -97,6 +96,23 @@ def test_recent_changes_question_returns_news_evidence(client, auth_headers) -> 
     body = response.json()
     assert "reporting" in body["answer"].lower()
     assert len(body["citations"]) >= 1
+
+
+def test_refresh_route_rehydrates_every_followed_quote_and_compacts_sources(
+    client, auth_headers
+) -> None:
+    for ticker in ("TCS", "INFY"):
+        assert (
+            client.post(f"/api/v1/stocks/{ticker}/follow", headers=auth_headers).status_code
+            == 201
+        )
+    refreshed = client.post("/api/v1/refresh", headers=auth_headers)
+    assert refreshed.status_code == 200
+    body = refreshed.json()
+    assert {stock["ticker"] for stock in body["stocks"]} == {"TCS", "INFY"}
+    assert {result["ticker"] for result in body["results"]} == {"TCS", "INFY"}
+    sources = client.get("/api/v1/sources?ticker=TCS", headers=auth_headers).json()
+    assert len(sources) == 2
 
 
 def test_follow_preserves_bse_exchange_and_returns_hydrated_stock(

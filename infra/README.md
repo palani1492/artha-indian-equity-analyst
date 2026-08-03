@@ -18,7 +18,7 @@ security groups allow inbound traffic exclusively from the ALB. Set
 - Separate standard Next.js standalone and FastAPI ECR images with push scanning/lifecycle rules
 - ECS Fargate cluster, services, task definitions, health checks, rollback, and CPU autoscaling
 - Encrypted RDS PostgreSQL 16 with an AWS-managed master credential secret
-- A separate Secrets Manager container for OAuth, session, and optional OpenAI credentials
+- A separate Secrets Manager container for OAuth, session, and optional OpenAI/Gemini credentials
 - CloudWatch log groups, Container Insights, and basic ALB/database alarms
 - Regional AWS WAF rate limiting on the Google OAuth callback
 - EventBridge Scheduler invoking the idempotent ingestion CLI as a one-off ECS task
@@ -80,6 +80,7 @@ Create these secrets in the GitHub `production` environment:
 | `GOOGLE_CLIENT_ID` | for Google auth | OAuth web client ID |
 | `GOOGLE_CLIENT_SECRET` | for Google auth | OAuth web client secret |
 | `OPENAI_API_KEY` | no | Leave unset for deterministic demo/local AI mode |
+| `GEMINI_API_KEY` | no | Optional Gemini Developer API key; never commit it |
 
 The deployment workflow first creates only the ECR repositories and empty
 application secret, writes secret values directly through the Secrets Manager
@@ -122,9 +123,13 @@ Important production variables:
 | `oauth_callback_rate_limit` | `100` | Per-IP OAuth callback limit in each five-minute WAF window |
 | `backend_environment` | `{}` | Extra non-secret backend environment settings |
 
-The production locals set `MARKET_DATA_PROVIDER=live` and `AI_PROVIDER=local`.
+The production locals set `MARKET_DATA_PROVIDER=live` and default `AI_PROVIDER=local`.
 Live mode uses yfinance for quotes/fundamentals and the configured, rate-limited
 RSS feeds for news; the deterministic provider is reserved for local evaluation.
+Set the GitHub production variable `AI_PROVIDER=gemini` after adding
+`GEMINI_API_KEY` to enable the optional Gemini prose/tagging pass. Requests remain
+grounded in the locally retrieved pgvector documents and fall back safely when
+the API is unavailable or its quota is exhausted.
 
 Never put secret values in `backend_environment` or `.tfvars`; use the existing
 Secrets Manager workflow. Keep AWS budgets/alerts enabled because ALB, WAF,

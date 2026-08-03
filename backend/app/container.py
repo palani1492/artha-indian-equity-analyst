@@ -9,8 +9,10 @@ from app.embeddings import (
     OpenAIEmbedder,
     ResilientCachedEmbedder,
 )
+from app.gemini import GeminiTextClient
 from app.generation import (
     ClaimPreservingAnswerGenerator,
+    GeminiAnswerGenerator,
     OpenAIAnswerGenerator,
     ResilientAnswerGenerator,
 )
@@ -25,7 +27,7 @@ from app.repositories.base import ResearchRepository
 from app.repositories.memory import InMemoryResearchRepository
 from app.repositories.sql import SqlAlchemyResearchRepository
 from app.settings import Settings
-from app.tagging import OpenAIArticleTagger, ResilientArticleTagger
+from app.tagging import GeminiArticleTagger, OpenAIArticleTagger, ResilientArticleTagger
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,7 @@ def build_container(settings: Settings | None = None) -> Container:
     openai_embedder = None
     openai_generator = None
     openai_tagger = None
+    gemini_client = None
     if runtime.ai_provider.lower() == "openai" and runtime.openai_api_key:
         openai_embedder = OpenAIEmbedder(
             runtime.openai_api_key, runtime.openai_embedding_model
@@ -74,11 +77,25 @@ def build_container(settings: Settings | None = None) -> Container:
         openai_tagger = OpenAIArticleTagger(
             runtime.openai_api_key, runtime.openai_chat_model
         )
+    if runtime.ai_provider.lower() == "gemini" and runtime.gemini_api_key:
+        gemini_client = GeminiTextClient(
+            runtime.gemini_api_key, runtime.gemini_model
+        )
     embedder = ResilientCachedEmbedder(openai_embedder, local_embedder)
-    generator = ClaimPreservingAnswerGenerator(
-        ResilientAnswerGenerator(openai_generator)
+    primary_generator = (
+        GeminiAnswerGenerator(gemini_client)
+        if gemini_client is not None
+        else openai_generator
     )
-    tagger = ResilientArticleTagger(openai_tagger)
+    generator = ClaimPreservingAnswerGenerator(
+        ResilientAnswerGenerator(primary_generator)
+    )
+    primary_tagger = (
+        GeminiArticleTagger(gemini_client)
+        if gemini_client is not None
+        else openai_tagger
+    )
+    tagger = ResilientArticleTagger(primary_tagger)
     ingestion = IngestionService(repository, provider, embedder, tagger)
     agent = EquityResearchAgent(
         repository, embedder, generator, runtime.retrieval_limit

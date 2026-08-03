@@ -66,6 +66,7 @@ def test_live_fundamentals_document_contains_groundable_inr_values() -> None:
     assert "INR 4125.50" in document.content
     assert "Debt-to-equity is 0.1" in document.content
     assert document.event_tag == "live-fundamentals"
+    assert document.id == LiveIndianMarketDataProvider._fundamentals_document(_stock()).id
 
 
 def test_live_provider_helpers_are_safe_for_missing_upstream_values() -> None:
@@ -73,6 +74,21 @@ def test_live_provider_helpers_are_safe_for_missing_upstream_values() -> None:
     assert provider._clean_html("<b> hello </b> world") == "hello world"
     assert provider._published_at("not-a-date").tzinfo is UTC
     assert provider._decimal(None) is None
+
+
+def test_rss_documents_use_stable_url_identity_for_syndicated_duplicates() -> None:
+    provider = LiveIndianMarketDataProvider(rss_feeds=())
+    payload = b"""<rss><channel>
+      <item><title>TCS profit growth</title><description>First feed copy</description>
+        <link>https://news.example.test/story?utm_source=one</link>
+        <pubDate>Fri, 01 Aug 2026 09:00:00 +0000</pubDate></item>
+      <item><title>TCS profit growth</title><description>Second feed copy</description>
+        <link>https://news.example.test/story?utm_medium=two</link>
+        <pubDate>Fri, 01 Aug 2026 10:00:00 +0000</pubDate></item>
+    </channel></rss>"""
+    documents = provider._parse_feed(payload, _stock())
+    assert len(documents) == 2
+    assert documents[0].content_hash == documents[1].content_hash
 
 
 async def test_live_provider_skips_an_unavailable_feed() -> None:

@@ -138,6 +138,10 @@ resource "aws_ecs_task_definition" "backend" {
         valueFrom = "${aws_secretsmanager_secret.application.arn}:OPENAI_API_KEY::"
       },
       {
+        name      = "GEMINI_API_KEY"
+        valueFrom = "${aws_secretsmanager_secret.application.arn}:GEMINI_API_KEY::"
+      },
+      {
         name      = "GOOGLE_CLIENT_ID"
         valueFrom = "${aws_secretsmanager_secret.application.arn}:GOOGLE_CLIENT_ID::"
       },

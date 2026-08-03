@@ -39,6 +39,17 @@ variable "image_tag" {
   default     = "latest"
 }
 
+variable "ai_provider" {
+  description = "Answer/tagging provider. Gemini and OpenAI require the matching environment secret."
+  type        = string
+  default     = "local"
+
+  validation {
+    condition     = contains(["local", "openai", "gemini"], lower(var.ai_provider))
+    error_message = "ai_provider must be local, openai, or gemini."
+  }
+}
+
 variable "frontend_cpu" {
   type    = number
   default = 256

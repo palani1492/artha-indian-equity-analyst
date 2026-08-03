@@ -33,6 +33,7 @@ jobs:
       TF_VAR_environment: production
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_ai_provider: ${{ vars.AI_PROVIDER || 'local' }}
       TF_VAR_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
       TF_VAR_public_base_url: ${{ vars.PUBLIC_BASE_URL }}
     steps:
@@ -46,6 +47,7 @@ jobs:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           : "${AWS_REGION:?Set the AWS_REGION repository variable}"
           : "${AWS_ROLE_ARN:?Set the AWS_ROLE_ARN repository variable}"
@@ -89,6 +91,7 @@ jobs:
       - name: Seed runtime secrets without Terraform state exposure
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
@@ -96,10 +99,11 @@ jobs:
           secret_arn="$(terraform output -raw application_secret_arn)"
           jq -n \
             --arg openai "${OPENAI_API_KEY}" \
+            --arg gemini "${GEMINI_API_KEY}" \
             --arg google_id "${GOOGLE_CLIENT_ID}" \
             --arg google_secret "${GOOGLE_CLIENT_SECRET}" \
             --arg session "${SESSION_SECRET}" \
-            '{OPENAI_API_KEY:$openai,GOOGLE_CLIENT_ID:$google_id,GOOGLE_CLIENT_SECRET:$google_secret,SESSION_SECRET:$session}' \
+            '{OPENAI_API_KEY:$openai,GEMINI_API_KEY:$gemini,GOOGLE_CLIENT_ID:$google_id,GOOGLE_CLIENT_SECRET:$google_secret,SESSION_SECRET:$session}' \
             > "${RUNNER_TEMP}/runtime-secrets.json"
           aws secretsmanager put-secret-value \
             --secret-id "${secret_arn}" \

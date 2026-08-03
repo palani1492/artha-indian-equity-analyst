@@ -6,7 +6,13 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from app.domain.models import InvestorPersona, SourceDocument, Stock
+from app.domain.models import (
+    DocumentKind,
+    InvestorPersona,
+    SourceDocument,
+    Stock,
+    canonical_source_url,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +97,20 @@ class InMemoryResearchRepository:
     ) -> bool:
         key = (document.ticker, document.content_hash)
         async with self._write_lock:
-            if key in self._hashes:
+            matching = [
+                stored.document
+                for stored in self._documents.values()
+                if stored.document.ticker == document.ticker
+                and (
+                    stored.document.content_hash == document.content_hash
+                    or (
+                        document.kind is DocumentKind.NEWS
+                        and canonical_source_url(stored.document.url)
+                        == canonical_source_url(document.url)
+                    )
+                )
+            ]
+            if key in self._hashes or matching:
                 return False
             self._hashes = {*self._hashes, key}
             self._documents = {
@@ -161,6 +180,43 @@ class InMemoryResearchRepository:
                 documents, key=lambda item: (item.published_at, item.id), reverse=True
             )
         )
+
+    async def deduplicate_documents(self, ticker: str | None = None) -> int:
+        async with self._write_lock:
+            candidates = sorted(
+                self._documents.items(),
+                key=lambda item: (item[1].document.published_at, item[0]),
+                reverse=True,
+            )
+            seen: set[tuple[str, str, str]] = set()
+            stale_ids: set[str] = set()
+            for document_id, stored in candidates:
+                document = stored.document
+                if ticker is not None and document.ticker != ticker:
+                    continue
+                identity = (
+                    document.ticker,
+                    document.kind.value,
+                    canonical_source_url(document.url)
+                    if document.kind is DocumentKind.NEWS
+                    else document.kind.value,
+                )
+                if identity in seen:
+                    stale_ids.add(document_id)
+                    continue
+                seen.add(identity)
+            if not stale_ids:
+                return 0
+            self._documents = {
+                document_id: stored
+                for document_id, stored in self._documents.items()
+                if document_id not in stale_ids
+            }
+            self._hashes = {
+                (stored.document.ticker, stored.document.content_hash)
+                for stored in self._documents.values()
+            }
+            return len(stale_ids)
 
     async def search_documents(
         self,

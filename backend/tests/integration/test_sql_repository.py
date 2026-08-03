@@ -4,7 +4,6 @@ import asyncio
 import os
 
 import pytest
-
 from app.container import build_container
 from app.settings import Settings
 
