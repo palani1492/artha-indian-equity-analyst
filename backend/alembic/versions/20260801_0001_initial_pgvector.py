@@ -3,9 +3,8 @@
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from pgvector.sqlalchemy import Vector
-
 from alembic import op
+from pgvector.sqlalchemy import Vector
 
 revision: str = "20260801_0001"
 down_revision: str | None = None
@@ -38,7 +37,6 @@ def upgrade() -> None:
         sa.Column("roe", sa.Numeric(16, 4)),
         sa.Column("revenue_growth", sa.Numeric(16, 4)),
         sa.Column("sentiment", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("change_pct", sa.Float(), nullable=False, server_default="0"),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_table(
