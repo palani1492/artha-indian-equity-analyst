@@ -29,6 +29,8 @@ class AgentState(TypedDict, total=False):
     message: str
     ticker: str | None
     persona_updated: bool
+    answer_kind: str
+    title: str
     is_recommendation: bool
     is_comparison: bool
     is_recent: bool
@@ -84,12 +86,14 @@ class EquityResearchAgent:
         if changed:
             embedding = await self._embedder.embed(persona_as_text(updated))
             await self._repository.save_persona(updated, embedding)
+        message = state["message"].lower()
+        answer_kind = self._answer_kind(message, changed)
         comparison = any(
-            phrase in state["message"].lower()
+            phrase in message
             for phrase in ("compare", " versus ", " vs ", "difference between")
         )
         recommendation = not comparison and any(
-            word in state["message"].lower()
+            word in message
             for word in (
                 "recommend",
                 "what should i buy",
@@ -102,7 +106,7 @@ class EquityResearchAgent:
             )
         )
         recent = any(
-            phrase in state["message"].lower()
+            phrase in message
             for phrase in (
                 "what changed",
                 "this week",
@@ -114,12 +118,21 @@ class EquityResearchAgent:
         )
         return {
             "persona_updated": changed,
+            "answer_kind": answer_kind,
+            "title": self._title_for(answer_kind),
             "is_recommendation": recommendation,
             "is_comparison": comparison,
             "is_recent": recent,
         }
 
     async def _retrieve_node(self, state: AgentState) -> dict[str, Any]:
+        if state.get("answer_kind") in {
+            "memory_update",
+            "memory_question",
+            "help",
+            "unsupported",
+        }:
+            return {"sources": (), "requested_tickers": ()}
         followed = await self._repository.list_followed_tickers(state["user_id"])
         stocks = await self._repository.list_stocks_for_user(state["user_id"])
         tickers = self._requested_tickers(
@@ -156,13 +169,21 @@ class EquityResearchAgent:
 
     async def _compose_node(self, state: AgentState) -> dict[str, Any]:
         sources = state.get("sources", ())
-        if (
-            state.get("persona_updated")
-            and not state.get("is_recommendation")
-            and not state.get("requested_tickers")
-        ):
+        answer_kind = state.get("answer_kind", "research")
+        if answer_kind == "memory_update":
+            persona = await self._repository.get_persona(state["user_id"])
             return {
-                "draft": "I updated your investor persona and will use it for future research.",
+                "draft": self._memory_update_answer(persona),
+                "citations": (),
+            }
+        if answer_kind == "memory_question":
+            persona = await self._repository.get_persona(state["user_id"])
+            return {"draft": self._memory_profile_answer(persona), "citations": ()}
+        if answer_kind == "help":
+            return {"draft": self._help_answer(), "citations": ()}
+        if answer_kind == "unsupported":
+            return {
+                "draft": "I am focused on Indian-equity research, followed tickers, cited fundamentals/news, and investor memory. Ask me to compare followed stocks, summarize recent changes, explain a metric, or remember your investor preferences.",
                 "citations": (),
             }
         if state.get("is_recommendation"):
@@ -185,6 +206,24 @@ class EquityResearchAgent:
         }
 
     async def _guard_node(self, state: AgentState) -> dict[str, Any]:
+        if state.get("answer_kind") in {
+            "memory_update",
+            "memory_question",
+            "help",
+            "unsupported",
+        }:
+            persona = await self._repository.get_persona(state["user_id"])
+            return {
+                "result": ChatResult(
+                    answer=state.get("draft", ""),
+                    citations=(),
+                    grounded=True,
+                    persona_updated=state.get("persona_updated", False),
+                    title=state.get("title"),
+                    answer_kind=state.get("answer_kind", "research"),
+                    persona=persona,
+                )
+            }
         grounded = self._guard.enforce(
             state.get("draft", GroundingGuard.FALLBACK),
             state.get("citations", ()),
@@ -223,6 +262,8 @@ class EquityResearchAgent:
                 grounded=grounded.is_grounded,
                 persona_updated=state.get("persona_updated", False),
                 recommendations=state.get("recommendations", ()),
+                title=state.get("title"),
+                answer_kind=state.get("answer_kind", "research"),
             )
         }
 
@@ -248,7 +289,16 @@ class EquityResearchAgent:
         if fundamentals:
             stock = await self._repository.get_stock(ticker or fundamentals.ticker)
             if stock:
-                sentences.append(f"{stock.name} trades at INR {stock.price_inr} [1].")
+                metrics = [f"{stock.name} trades at INR {stock.price_inr}"]
+                if stock.pe_ratio is not None:
+                    metrics.append(f"P/E ratio is {stock.pe_ratio}")
+                if stock.debt_to_equity is not None:
+                    metrics.append(f"debt-to-equity is {stock.debt_to_equity}")
+                if stock.roe is not None:
+                    metrics.append(f"return on equity is {stock.roe}%")
+                if stock.revenue_growth is not None:
+                    metrics.append(f"revenue growth is {stock.revenue_growth}%")
+                sentences.append(f"{', '.join(metrics)} [1].")
         if news:
             news_index = 2 if fundamentals else 1
             tone = (
@@ -259,7 +309,7 @@ class EquityResearchAgent:
                 else "neutral"
             )
             sentences.append(
-                f"The latest retrieved reporting has a {tone} tone [{news_index}]."
+                f"The latest retrieved reporting is tagged {tone}, with event impact '{news.impact}' and event type '{news.event_tag}' [{news_index}]."
             )
         elif fundamentals:
             sentences.append(
@@ -313,6 +363,10 @@ class EquityResearchAgent:
                     metrics.append(f"debt-to-equity is {stock.debt_to_equity}")
                 if stock.roe is not None:
                     metrics.append(f"return on equity is {stock.roe}%")
+                if stock.revenue_growth is not None:
+                    metrics.append(f"revenue growth is {stock.revenue_growth}%")
+                if stock.dividend_yield is not None:
+                    metrics.append(f"dividend yield is {stock.dividend_yield}%")
                 sentences.append(
                     f"{stock.name}: {', '.join(metrics)} [{source_index}]."
                 )
@@ -379,6 +433,8 @@ class EquityResearchAgent:
                 else "",
             ]
             sentence = f"{stock.name}: {', '.join(metric for metric in metrics if metric)} [{fundamentals_index}]."
+            if item.reasons:
+                sentence += f" Fit reasons: {', '.join(item.reasons[:3])}."
             news = news_by_ticker.get(stock.ticker)
             if news:
                 news_index = index_by_source[news.id]
@@ -394,6 +450,122 @@ class EquityResearchAgent:
                 )
             sentences.append(sentence)
         return " ".join(sentences) or GroundingGuard.FALLBACK, citations
+
+    @staticmethod
+    def _answer_kind(message: str, persona_changed: bool) -> str:
+        normalized = " ".join(message.split())
+        if persona_changed or any(
+            phrase in normalized
+            for phrase in (
+                "remember this",
+                "remember that",
+                "i am a",
+                "i'm a",
+                "i prefer",
+                "i avoid",
+                "my risk",
+                "my horizon",
+            )
+        ):
+            return "memory_update"
+        if any(
+            phrase in normalized
+            for phrase in (
+                "what kind of investor am i",
+                "what do you remember",
+                "my investor profile",
+                "my profile are you using",
+                "what are my avoid rules",
+            )
+        ):
+            return "memory_question"
+        if any(
+            phrase in normalized
+            for phrase in (
+                "what can i ask",
+                "how do i use",
+                "help",
+                "what can you do",
+                "explain p/e",
+                "what is p/e",
+                "what does roe mean",
+                "what is debt-to-equity",
+            )
+        ):
+            return "help"
+        if any(
+            phrase in normalized
+            for phrase in (
+                "guaranteed return",
+                "insider",
+                "tomorrow's price",
+                "next month price",
+                "put all my money",
+            )
+        ):
+            return "unsupported"
+        if "risk" in normalized or "risks" in normalized:
+            return "risk_summary"
+        if any(phrase in normalized for phrase in ("compare", " versus ", " vs ")):
+            return "comparison"
+        if any(
+            phrase in normalized
+            for phrase in ("recommend", "best fit", "best fits", "find a fit")
+        ):
+            return "recommendation"
+        if any(
+            phrase in normalized
+            for phrase in ("what changed", "this week", "latest", "recent", "news")
+        ):
+            return "recent_changes"
+        return "research"
+
+    @staticmethod
+    def _title_for(answer_kind: str) -> str:
+        return {
+            "memory_update": "Memory updated",
+            "memory_question": "Investor profile",
+            "help": "How to use Artha",
+            "unsupported": "Outside Artha's evidence",
+            "risk_summary": "Risk summary",
+            "comparison": "Comparison",
+            "recommendation": "Profile-fit recommendation",
+            "recent_changes": "Recent changes",
+        }.get(answer_kind, "Grounded research response")
+
+    @staticmethod
+    def _memory_update_answer(persona: Any) -> str:
+        priorities = ", ".join(persona.priorities) or "no recorded priorities"
+        avoid = ", ".join(persona.avoid) or "no recorded avoid rules"
+        return (
+            "Done. I updated your investor memory: "
+            f"{persona.risk_tolerance.value} risk profile, {persona.horizon} horizon, "
+            f"{persona.style} style. I will prioritise {priorities} and avoid {avoid} "
+            "when ranking followed stocks."
+        )
+
+    @staticmethod
+    def _memory_profile_answer(persona: Any) -> str:
+        priorities = ", ".join(persona.priorities) or "no recorded priorities"
+        avoid = ", ".join(persona.avoid) or "no recorded avoid rules"
+        sectors = ", ".join(persona.preferred_sectors) or "no sector preference"
+        notes = " ".join(persona.notes[-2:]) if persona.notes else ""
+        note_sentence = f" Recent notes: {notes}." if notes else ""
+        return (
+            f"You are currently profiled as a {persona.risk_tolerance.value} investor "
+            f"with a {persona.horizon} horizon and {persona.style} style. "
+            f"I will prioritise {priorities}, prefer {sectors}, and avoid {avoid}."
+            f"{note_sentence}"
+        )
+
+    @staticmethod
+    def _help_answer() -> str:
+        return (
+            "You can ask me to remember your investor preferences, explain your profile, "
+            "compare followed companies, summarize recent changes, produce cited risk "
+            "summaries, or recommend which followed stock best fits your profile. "
+            "For unsupported facts or uncited numbers, I will say I do not have the data."
+        )
 
     async def _fundamentals_for(
         self, tickers: tuple[str, ...]

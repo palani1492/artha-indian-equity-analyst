@@ -414,6 +414,7 @@ export function apiAnswer(payload: unknown): ChatMessage | null {
     role: "assistant",
     title: typeof payload.title === "string" ? payload.title : "Grounded research response",
     text: answer,
+    answerKind: typeof payload.answer_kind === "string" ? payload.answer_kind : undefined,
     citations,
     createdLabel: "Now",
     createdAt:

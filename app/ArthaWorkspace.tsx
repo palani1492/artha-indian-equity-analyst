@@ -48,6 +48,7 @@ type AnswerEvidence = {
   citations: Citation[];
   sources: ResearchSource[];
   scopeLabel: string;
+  answerKind?: string;
 };
 const AUTO_REFRESH_MS = 120_000;
 
@@ -383,7 +384,18 @@ export function ArthaWorkspace() {
     }
     const citations = answer.citations ?? [];
     const citedSources = sourcesForCitations(citations, tickerSources);
-    setAnswerEvidence({ citations, sources: citedSources, scopeLabel: evidenceScope });
+    const memoryScope =
+      answer.answerKind === "memory_update"
+        ? "Investor memory / updated from your message"
+        : answer.answerKind === "memory_question"
+          ? "Investor memory / stored profile"
+          : evidenceScope;
+    setAnswerEvidence({
+      citations,
+      sources: citedSources,
+      scopeLabel: memoryScope,
+      answerKind: answer.answerKind,
+    });
     setPendingEvidenceScope(null);
     setExpandedSource(citedSources[0]?.id ?? null);
     setMessages((current) => [...current, answer]);
@@ -753,6 +765,7 @@ export function ArthaWorkspace() {
               <ResearchStarter
                 activeStock={activeStock}
                 followedStocks={stocks}
+                persona={persona}
                 onAsk={(prompt) => void sendQuestion(prompt)}
               />
             ) : (
@@ -795,7 +808,7 @@ export function ArthaWorkspace() {
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 onKeyDown={handleComposerKeyDown}
-                placeholder="Ask about sentiment, fundamentals, or fit with your investor memory"
+                placeholder="Ask about a stock, compare followed companies, or update your investor memory"
                 disabled={isThinking}
               />
               <div className="composer-footer">
@@ -860,14 +873,38 @@ export function ArthaWorkspace() {
                 <p className="source-explainer">
                   {pendingEvidenceScope
                     ? `Retrieving evidence for ${pendingEvidenceScope.replace("Current answer / ", "")}.`
-                    : answerEvidence
-                      ? `${answerEvidence.scopeLabel}. This rail is pinned to the exact sources cited by the current answer.`
+                    : answerEvidence?.answerKind === "memory_update"
+                      ? "No external source was needed. Artha updated your structured investor memory from your message."
+                      : answerEvidence?.answerKind === "memory_question"
+                        ? "No external source was needed. This answer came from your stored investor memory."
+                        : answerEvidence
+                          ? `${answerEvidence.scopeLabel}. This rail is pinned to the exact sources cited by the current answer.`
                       : `Ticker evidence / ${activeStock?.symbol ?? "no ticker selected"}. Ask a question to pin its cited sources here.`}
                 </p>
                 {visibleSources.length === 0 ? (
                   <EmptyState
-                    title={pendingEvidenceScope ? "Retrieving cited sources" : answerEvidence ? "No cited sources returned" : "No sources retrieved"}
-                    body={pendingEvidenceScope ? "The rail will update when the answer is ready." : answerEvidence ? "This answer did not include evidence that can be opened." : "Refresh this ticker, then ask a grounded question."}
+                    title={
+                      pendingEvidenceScope
+                        ? "Retrieving cited sources"
+                        : answerEvidence?.answerKind === "memory_update"
+                          ? "Memory updated"
+                          : answerEvidence?.answerKind === "memory_question"
+                            ? "Investor memory"
+                            : answerEvidence
+                              ? "No cited sources returned"
+                              : "No sources retrieved"
+                    }
+                    body={
+                      pendingEvidenceScope
+                        ? "The rail will update when the answer is ready."
+                        : answerEvidence?.answerKind === "memory_update"
+                          ? "This response used your message, not market evidence."
+                          : answerEvidence?.answerKind === "memory_question"
+                            ? "This response used the stored profile, not market evidence."
+                            : answerEvidence
+                              ? "This answer did not include evidence that can be opened."
+                              : "Refresh this ticker, then ask a grounded question."
+                    }
                   />
                 ) : (
                   visibleSources.map((source, index) => (
@@ -1207,25 +1244,36 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 function ResearchStarter({
   activeStock,
   followedStocks,
+  persona,
   onAsk,
 }: {
   activeStock?: Stock;
   followedStocks: Stock[];
+  persona: Persona;
   onAsk: (prompt: string) => void;
 }) {
   const comparisonStock = followedStocks.find(
     (stock) => stock.symbol !== activeStock?.symbol,
   );
+  const hasSpecificMemory =
+    persona.risk !== "Moderate" ||
+    persona.style !== "Quality at a fair price" ||
+    persona.focus.includes("Reliable dividends") ||
+    persona.avoid.includes("Excessive valuation");
   const prompts = [
+    hasSpecificMemory
+      ? "What kind of investor am I?"
+      : "I am a conservative investor who prefers low debt and durable cash flows. Remember this.",
     activeStock && comparisonStock
-      ? `Compare ${activeStock.symbol} and ${comparisonStock.symbol}`
+      ? `Compare ${activeStock.symbol} and ${comparisonStock.symbol}.`
       : activeStock
-        ? `Summarise the latest evidence for ${activeStock.symbol}`
-        : "Follow an equity to begin research",
-    activeStock
-      ? `What changed this week for ${activeStock.symbol}?`
-      : "What changed this week for my followed equities?",
-    "Find a fit for my profile",
+        ? `What changed this week for ${activeStock.symbol}?`
+        : "What can I ask you?",
+    followedStocks.length > 1
+      ? "Which followed company best fits my profile?"
+      : activeStock
+        ? `Give me a cited risk summary for ${activeStock.symbol}.`
+        : "Follow TCS to begin research.",
   ];
   return (
     <div className="research-starter">
@@ -1237,7 +1285,7 @@ function ResearchStarter({
       </p>
       <div className="starter-prompts" aria-label="Research question examples">
         {prompts.map((prompt) => (
-          <button type="button" key={prompt} onClick={() => onAsk(prompt)} disabled={!activeStock}>
+          <button type="button" key={prompt} onClick={() => onAsk(prompt)}>
             {prompt}
           </button>
         ))}

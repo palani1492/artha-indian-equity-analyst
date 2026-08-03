@@ -231,4 +231,7 @@ class ChatResult(BaseModel):
     grounded: bool
     persona_updated: bool = False
     recommendations: tuple[RankedStock, ...] = ()
+    title: str | None = None
+    answer_kind: str = "research"
+    persona: InvestorPersona | None = None
     debug: dict[str, Any] = Field(default_factory=dict, exclude=True)

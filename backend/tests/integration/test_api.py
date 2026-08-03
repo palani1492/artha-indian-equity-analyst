@@ -168,6 +168,54 @@ def test_chat_updates_persona_and_recommends_from_followed_universe(
     assert recommendation.json()["recommendations"]
 
 
+def test_memory_update_is_not_treated_as_stock_research(client, auth_headers) -> None:
+    assert client.post("/api/v1/stocks/INFY/follow", headers=auth_headers).status_code == 201
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={
+            "message": "I am a conservative investor who prefers low debt and durable cash flows. Remember this.",
+            "ticker": "INFY",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["persona_updated"] is True
+    assert body["answer_kind"] == "memory_update"
+    assert body["title"] == "Memory updated"
+    assert body["citations"] == []
+    assert "updated your investor memory" in body["answer"].lower()
+    assert "infosys" not in body["answer"].lower()
+    assert body["persona"]["risk_tolerance"] == "conservative"
+    assert "Low leverage" in body["persona"]["priorities"]
+
+
+def test_memory_question_answers_from_stored_profile(client, auth_headers) -> None:
+    learned = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={
+            "message": "I am conservative and prefer low debt, dividends, and durable cash flows. Remember this."
+        },
+    )
+    assert learned.status_code == 200
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={"message": "What kind of investor am I?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer_kind"] == "memory_question"
+    assert body["citations"] == []
+    assert "conservative investor" in body["answer"].lower()
+    assert "low leverage" in body["answer"].lower()
+
+
 def test_plain_language_profile_question_returns_followed_recommendations(
     client, auth_headers
 ) -> None:

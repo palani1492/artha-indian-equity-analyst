@@ -45,6 +45,7 @@ export type ChatMessage = {
   role: "assistant" | "user";
   text: string;
   title?: string;
+  answerKind?: string;
   citations?: Citation[];
   createdLabel: string;
   createdAt?: string;
