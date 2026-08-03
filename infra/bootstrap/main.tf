@@ -230,6 +230,7 @@ data "aws_iam_policy_document" "github_deploy" {
       "ecr:DeleteLifecyclePolicy",
       "ecr:DeleteRepository",
       "ecr:DescribeImages",
+      "ecr:DescribeImageScanFindings",
       "ecr:DescribeRepositories",
       "ecr:GetAuthorizationToken",
       "ecr:GetDownloadUrlForLayer",
