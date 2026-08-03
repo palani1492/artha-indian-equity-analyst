@@ -66,13 +66,6 @@ resource "aws_ecs_task_definition" "frontend" {
       containerPath = "/tmp"
       readOnly      = false
     }]
-    healthCheck = {
-      command     = ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
-      interval    = 30
-      timeout     = 5
-      retries     = 3
-      startPeriod = 20
-    }
     logConfiguration = {
       logDriver = "awslogs"
       options = {
