@@ -19,6 +19,8 @@ runs migrations, rolls out ECS services, and smoke-tests the public application.
 
 - Sign in with Google OIDC, or use deterministic demo auth locally.
 - Follow NSE/BSE symbols such as `RELIANCE`, `TCS`, and `HDFCBANK`.
+- Remove a followed equity with a confirmation step; the watchlist and active
+  research thread update immediately.
 - Ingest deduplicated fundamentals and recent Indian-market news.
 - Ask ticker questions and inspect the exact sources behind each answer.
 - Teach the agent a risk, dividend, debt, sector, and time-horizon persona in
@@ -32,6 +34,9 @@ runs migrations, rolls out ECS services, and smoke-tests the public application.
   routed across the followed universe; ticker-specific questions stay scoped to
   the active company. The evidence rail refreshes after every follow/ingest and
   highlights sources cited by the latest answer.
+- Starter questions are generated from the active/followed universe rather than
+  hard-coded to a particular company. “What changed this week?” prioritizes the
+  newest retrieved news and states clearly when no matching news exists.
 
 The default `demo` data provider is deterministic, free, and network-independent
 for evaluation. `MARKET_DATA_PROVIDER=live` enables yfinance quotes/fundamentals
@@ -154,6 +159,9 @@ the pgvector extension.
 | `GET/PATCH` | `/api/v1/persona` | Read or update investor memory |
 | `GET` | `/api/v1/stocks` | List followed stocks |
 | `POST` | `/api/v1/stocks/{ticker}/follow` | Follow and idempotently ingest a ticker |
+| `DELETE` | `/api/v1/stocks/{ticker}/follow` | Remove a ticker from the current watchlist |
+| `POST` | `/api/v1/stocks/{ticker}/ingest` | Refresh one ticker's fundamentals and news |
+| `GET` | `/api/v1/sources?ticker=...` | List indexed sources for a ticker |
 | `POST` | `/api/v1/chat` | Run the contextual, grounded graph |
 
 Compatibility endpoints under `/api/*` support the frontend's compact contract.

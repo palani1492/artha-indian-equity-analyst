@@ -198,6 +198,16 @@ class SqlAlchemyResearchRepository:
             session.add(FollowRow(user_id=user_id, ticker=ticker))
             return True
 
+    async def unfollow_stock(self, user_id: str, ticker: str) -> bool:
+        async with self._sessions.begin() as session:
+            existing = await session.get(
+                FollowRow, {"user_id": user_id, "ticker": ticker}
+            )
+            if existing is None:
+                return False
+            await session.delete(existing)
+            return True
+
     async def list_followed_tickers(
         self, user_id: str | None = None
     ) -> tuple[str, ...]:
@@ -242,6 +252,28 @@ class SqlAlchemyResearchRepository:
         async with self._sessions.begin() as session:
             session.add(DocumentRow(**values))
         return True
+
+    async def upsert_document(
+        self, document: SourceDocument, embedding: tuple[float, ...]
+    ) -> bool:
+        values = document.model_dump(mode="python")
+        values.update(kind=document.kind.value, url=str(document.url), embedding=list(embedding))
+        query = select(DocumentRow).where(
+            DocumentRow.ticker == document.ticker,
+            DocumentRow.kind == document.kind.value,
+        ).order_by(DocumentRow.published_at.desc())
+        async with self._sessions.begin() as session:
+            rows = list((await session.scalars(query)).all())
+            row = rows[0] if rows else None
+            if row is None:
+                session.add(DocumentRow(**values))
+                return True
+            for stale in rows[1:]:
+                await session.delete(stale)
+            for key, value in values.items():
+                if key != "id":
+                    setattr(row, key, value)
+            return False
 
     async def count_documents(self, ticker: str) -> int:
         query = select(DocumentRow.id).where(DocumentRow.ticker == ticker)

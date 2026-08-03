@@ -36,6 +36,31 @@ def test_protected_routes_require_identity(client) -> None:
     assert response.status_code == 401
 
 
+def test_logout_returns_no_content_and_clears_cookie(client) -> None:
+    response = client.post("/api/v1/auth/logout")
+    assert response.status_code == 204
+    assert "sentellent_session" in response.headers.get("set-cookie", "")
+
+
+def test_unfollow_removes_stock_from_user_watchlist(client, auth_headers) -> None:
+    followed = client.post("/api/v1/stocks/TCS/follow", headers=auth_headers)
+    assert followed.status_code == 201
+
+    removed = client.delete("/api/v1/stocks/TCS/follow", headers=auth_headers)
+    assert removed.status_code == 200
+    assert removed.json() == {"ticker": "TCS", "followed": False}
+    assert client.get("/api/v1/stocks", headers=auth_headers).json() == []
+
+
+def test_versioned_sources_and_ingest_routes_are_available(client, auth_headers) -> None:
+    followed = client.post("/api/v1/stocks/TCS/follow", headers=auth_headers)
+    assert followed.status_code == 201
+    assert client.get("/api/v1/sources?ticker=TCS", headers=auth_headers).status_code == 200
+    assert client.post(
+        "/api/v1/stocks/TCS/ingest", headers=auth_headers
+    ).status_code == 200
+
+
 def test_follow_stock_and_grounded_chat_flow(client, auth_headers) -> None:
     followed = client.post("/api/v1/stocks/TCS/follow", headers=auth_headers)
     assert followed.status_code == 201
@@ -58,6 +83,20 @@ def test_follow_stock_and_grounded_chat_flow(client, auth_headers) -> None:
     assert "[1]" in body["answer"]
     assert body["citations"][0]["url"].startswith("https://")
     assert body["grounded"] is True
+
+
+def test_recent_changes_question_returns_news_evidence(client, auth_headers) -> None:
+    followed = client.post("/api/v1/stocks/TCS/follow", headers=auth_headers)
+    assert followed.status_code == 201
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={"message": "What changed this week for TCS?", "ticker": "TCS"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "reporting" in body["answer"].lower()
+    assert len(body["citations"]) >= 1
 
 
 def test_follow_preserves_bse_exchange_and_returns_hydrated_stock(

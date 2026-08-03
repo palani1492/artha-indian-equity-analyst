@@ -35,6 +35,7 @@ async function routeBackendContract(
     followPath?: string;
     followPayload?: Record<string, unknown>;
     ingestPayload?: Record<string, unknown>;
+    unfollowPath?: string;
   },
 ) {
   await page.route("**/api/**", async (route: Route) => {
@@ -67,7 +68,7 @@ async function routeBackendContract(
       capture.persona = request.postDataJSON();
       return route.fulfill({ json: capture.persona });
     }
-    if (path === "/api/sources") return route.fulfill({ json: [SOURCE] });
+    if (path === "/api/v1/sources" || path === "/api/sources") return route.fulfill({ json: [SOURCE] });
     if (path.endsWith("/follow") && method === "POST") {
       capture.followPath = path;
       capture.followPayload = request.postDataJSON();
@@ -88,11 +89,15 @@ async function routeBackendContract(
         },
       });
     }
-    if (path === "/api/ingest" && method === "POST") {
+    if ((path === "/api/v1/stocks/TCS/ingest" || path === "/api/ingest") && method === "POST") {
       capture.ingestPayload = request.postDataJSON();
       return route.fulfill({
         json: { ticker: "SBIN", inserted: 0, skipped: 2, sentiment: 0.1 },
       });
+    }
+    if (path.endsWith("/follow") && method === "DELETE") {
+      capture.unfollowPath = path;
+      return route.fulfill({ json: { ticker: "TCS", followed: false } });
     }
     if (path === "/api/v1/chat" && method === "POST") {
       return route.fulfill({
@@ -163,6 +168,24 @@ test("sends persona updates in the FastAPI schema and logs out with POST", async
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect.poll(() => capture.logout).toBe(true);
   await expect(page.getByRole("link", { name: "Sign in with Google" })).toBeVisible();
+});
+
+test("keeps research prompts contextual and removes a followed equity", async ({ page }) => {
+  const capture: { unfollowPath?: string } = {};
+  await routeBackendContract(page, capture);
+  await page.goto("/");
+
+  await expect(page.getByRole("button", { name: "Summarise the latest evidence for TCS" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "What changed this week for TCS?" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Find a fit for my profile" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Compare TCS and Infosys" })).toHaveCount(0);
+  await expect(page.locator(".quick-prompts")).toHaveCount(0);
+
+  const remove = page.getByRole("button", { name: "Remove TCS" });
+  await remove.click();
+  await page.getByRole("button", { name: "Confirm remove TCS" }).click();
+  await expect.poll(() => capture.unfollowPath).toBe("/api/v1/stocks/TCS/follow");
+  await expect(page.getByText("No equities followed", { exact: true })).toBeVisible();
 });
 
 test("preserves BSE across follow, hydration, and manual refresh", async ({ page }) => {

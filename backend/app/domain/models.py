@@ -76,11 +76,18 @@ class InvestorPersona(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=320)
     risk_tolerance: RiskTolerance = RiskTolerance.BALANCED
+    style: str = Field(default="Quality at a fair price", max_length=120)
     dividend_focused: bool = False
     avoid_high_debt: bool = False
     max_debt_to_equity: Decimal = Field(default=Decimal(2), ge=0, le=20)
     preferred_sectors: tuple[str, ...] = ()
     excluded_sectors: tuple[str, ...] = ()
+    priorities: tuple[str, ...] = (
+        "Durable cash flows",
+        "Low leverage",
+        "Governance",
+    )
+    avoid: tuple[str, ...] = ("High debt", "Uncited momentum calls")
     horizon: str = Field(default="medium-term", max_length=80)
     notes: tuple[str, ...] = ()
     version: int = Field(default=1, ge=1)
@@ -117,12 +124,15 @@ class SourceDocument(BaseModel):
         impact: str = "neutral",
         event_tag: str = "general",
         mentioned_tickers: tuple[str, ...] = (),
+        dedupe_key: str | None = None,
     ) -> SourceDocument:
         normalized_ticker, _ = normalize_ticker(ticker)
         normalized_content = " ".join(content.split())
-        # Content-addressing deduplicates syndicated copies even when source URLs differ.
-        digest_input = normalized_content.encode()
-        content_hash = hashlib.sha256(digest_input).hexdigest()
+        # Content-addressing deduplicates syndicated copies; stable keys can keep
+        # one mutable snapshot such as live fundamentals per ticker.
+        content_hash = hashlib.sha256(
+            (dedupe_key or normalized_content).encode()
+        ).hexdigest()
         return cls(
             id=hashlib.sha256(
                 f"{normalized_ticker}:{content_hash}".encode()

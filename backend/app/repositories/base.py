@@ -19,6 +19,8 @@ class ResearchRepository(Protocol):
 
     async def follow_stock(self, user_id: str, ticker: str) -> bool: ...
 
+    async def unfollow_stock(self, user_id: str, ticker: str) -> bool: ...
+
     async def list_followed_tickers(
         self, user_id: str | None = None
     ) -> tuple[str, ...]: ...
@@ -28,6 +30,10 @@ class ResearchRepository(Protocol):
     async def has_document_hash(self, ticker: str, content_hash: str) -> bool: ...
 
     async def insert_document(
+        self, document: SourceDocument, embedding: tuple[float, ...]
+    ) -> bool: ...
+
+    async def upsert_document(
         self, document: SourceDocument, embedding: tuple[float, ...]
     ) -> bool: ...
 

@@ -291,14 +291,13 @@ class LiveIndianMarketDataProvider:
     def _parse_feed(self, payload: bytes, stock: Stock) -> tuple[SourceDocument, ...]:
         root = ET.fromstring(payload)
         matches: list[SourceDocument] = []
+        aliases = self._company_aliases(stock)
         for item in root.findall(".//item")[:100]:
             title = self._text(item, "title")
             description = self._clean_html(self._text(item, "description"))
             combined = f"{title} {description}"
-            if (
-                stock.ticker.lower() not in combined.lower()
-                and stock.name.lower() not in combined.lower()
-            ):
+            normalized_combined = self._normalize_company_text(combined)
+            if not any(alias in normalized_combined for alias in aliases):
                 continue
             raw_url = self._text(item, "link")
             if not raw_url.startswith(("http://", "https://")):
@@ -318,6 +317,24 @@ class LiveIndianMarketDataProvider:
                 )
             )
         return tuple(matches)
+
+    @classmethod
+    def _company_aliases(cls, stock: Stock) -> tuple[str, ...]:
+        normalized_name = cls._normalize_company_text(stock.name)
+        shortened_name = normalized_name
+        for suffix in (" limited", " ltd", " plc"):
+            shortened_name = shortened_name.removesuffix(suffix)
+        words = shortened_name.split()
+        aliases = {
+            cls._normalize_company_text(stock.ticker),
+            shortened_name,
+            " ".join(words[:2]) if len(words) >= 2 else shortened_name,
+        }
+        return tuple(sorted((alias for alias in aliases if alias), key=len, reverse=True))
+
+    @staticmethod
+    def _normalize_company_text(value: str) -> str:
+        return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
 
     @staticmethod
     def _fundamentals_document(stock: Stock) -> SourceDocument:
@@ -342,6 +359,7 @@ class LiveIndianMarketDataProvider:
             content=" ".join(fields),
             published_at=datetime.now(UTC),
             event_tag="live-fundamentals",
+            dedupe_key=f"{stock.ticker}:fundamentals",
         )
 
     @staticmethod

@@ -166,9 +166,3 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
     createdLabel: "Now",
   },
 ];
-
-export const QUICK_PROMPTS = [
-  "Compare TCS and Infosys",
-  "What changed recently for this company?",
-  "Which followed company best fits my profile?",
-];

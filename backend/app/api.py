@@ -52,11 +52,14 @@ class TickerRequest(BaseModel):
 
 class PersonaPatch(BaseModel):
     risk_tolerance: RiskTolerance | None = None
+    style: str | None = Field(default=None, min_length=1, max_length=120)
     dividend_focused: bool | None = None
     avoid_high_debt: bool | None = None
     max_debt_to_equity: Decimal | None = Field(default=None, ge=0, le=20)
     preferred_sectors: tuple[str, ...] | None = None
     excluded_sectors: tuple[str, ...] | None = None
+    priorities: tuple[str, ...] | None = None
+    avoid: tuple[str, ...] | None = None
     horizon: str | None = Field(default=None, min_length=1, max_length=80)
 
 
@@ -65,6 +68,11 @@ class FollowResponse(BaseModel):
     followed: bool
     ingestion: IngestionResult
     stock: Stock
+
+
+class UnfollowResponse(BaseModel):
+    ticker: str
+    followed: bool = False
 
 
 class OAuthConfigResponse(BaseModel):
@@ -175,7 +183,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
     async def logout(request: Request, response: Response) -> Response:
         await dependencies.auth.logout(request, response)
-        return response
+        return Response(status_code=status.HTTP_204_NO_CONTENT, headers=response.headers)
 
     @app.get("/api/v1/persona", response_model=InvestorPersona)
     @app.get("/api/persona", response_model=InvestorPersona)
@@ -251,6 +259,25 @@ def create_app(container: Container | None = None) -> FastAPI:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
             ) from error
 
+    @app.delete(
+        "/api/v1/stocks/{ticker}/follow",
+        response_model=UnfollowResponse,
+    )
+    async def unfollow_stock(
+        ticker: str, user_id: Annotated[str, Depends(_user_id)]
+    ) -> UnfollowResponse:
+        await dependencies.limiter.check(
+            "unfollow", user_id, dependencies.settings.rate_limit_mutation_requests
+        )
+        try:
+            normalized, _ = normalize_ticker(ticker)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+            ) from error
+        await dependencies.repository.unfollow_stock(user_id, normalized)
+        return UnfollowResponse(ticker=normalized)
+
     @app.post(
         "/api/follow",
         response_model=FollowResponse,
@@ -263,6 +290,23 @@ def create_app(container: Container | None = None) -> FastAPI:
             "follow", user_id, dependencies.settings.rate_limit_mutation_requests
         )
         return await follow(payload.ticker, user_id)
+
+    @app.post(
+        "/api/v1/stocks/{ticker}/ingest",
+        response_model=IngestionResult,
+    )
+    async def ingest_stock(
+        ticker: str, user_id: Annotated[str, Depends(_user_id)]
+    ) -> IngestionResult:
+        await dependencies.limiter.check(
+            "ingest", user_id, dependencies.settings.rate_limit_mutation_requests
+        )
+        try:
+            return await dependencies.ingestion.ingest(ticker)
+        except LookupError as error:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
+            ) from error
 
     @app.post("/api/ingest", response_model=IngestionResult)
     async def ingest_compat(
@@ -278,6 +322,7 @@ def create_app(container: Container | None = None) -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
             ) from error
 
+    @app.get("/api/v1/sources", response_model=tuple[SourceDocument, ...])
     @app.get("/api/sources", response_model=tuple[SourceDocument, ...])
     async def sources(
         _: Annotated[str, Depends(_user_id)],

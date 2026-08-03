@@ -39,6 +39,13 @@ class IngestionService:
             inserted = 0
             skipped = 0
             for document in documents:
+                if document.kind.value == "fundamentals":
+                    embedding = await self._embedder.embed(document.content)
+                    if await self._repository.upsert_document(document, embedding):
+                        inserted += 1
+                    else:
+                        skipped += 1
+                    continue
                 if await self._repository.has_document_hash(
                     ticker, document.content_hash
                 ):

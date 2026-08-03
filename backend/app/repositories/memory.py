@@ -56,6 +56,16 @@ class InMemoryResearchRepository:
             self._follows[user_id] = updated
             return not existed
 
+    async def unfollow_stock(self, user_id: str, ticker: str) -> bool:
+        async with self._write_lock:
+            existed = ticker in self._follows.get(user_id, set())
+            if not existed:
+                return False
+            updated = set(self._follows[user_id])
+            updated.remove(ticker)
+            self._follows = {**self._follows, user_id: updated}
+            return True
+
     async def list_followed_tickers(
         self, user_id: str | None = None
     ) -> tuple[str, ...]:
@@ -89,6 +99,51 @@ class InMemoryResearchRepository:
                 document.id: _StoredDocument(document=document, embedding=embedding),
             }
             return True
+
+    async def upsert_document(
+        self, document: SourceDocument, embedding: tuple[float, ...]
+    ) -> bool:
+        async with self._write_lock:
+            matching_ids = [
+                document_id
+                for document_id, stored in self._documents.items()
+                if stored.document.ticker == document.ticker
+                and stored.document.kind == document.kind
+            ]
+            existing_id = matching_ids[0] if matching_ids else None
+            if existing_id is None:
+                key = (document.ticker, document.content_hash)
+                self._hashes = {*self._hashes, key}
+                self._documents = {
+                    **self._documents,
+                    document.id: _StoredDocument(document=document, embedding=embedding),
+                }
+                return True
+            stale_ids = set(matching_ids[1:])
+            self._hashes = {
+                key
+                for key in self._hashes
+                if key[0] != document.ticker
+                or all(
+                    self._documents[document_id].document.content_hash != key[1]
+                    for document_id in matching_ids
+                    if document_id in self._documents
+                )
+            }
+            self._hashes = {*self._hashes, (document.ticker, document.content_hash)}
+            self._documents = {
+                document_id: stored
+                for document_id, stored in self._documents.items()
+                if document_id not in stale_ids
+            }
+            self._documents = {
+                **self._documents,
+                existing_id: _StoredDocument(
+                    document=document.model_copy(update={"id": existing_id}),
+                    embedding=embedding,
+                ),
+            }
+            return False
 
     async def count_documents(self, ticker: str) -> int:
         return sum(item.document.ticker == ticker for item in self._documents.values())

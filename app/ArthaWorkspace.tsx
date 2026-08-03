@@ -12,7 +12,6 @@ import {
   DEMO_SOURCES,
   DEMO_STOCKS,
   INITIAL_MESSAGES,
-  QUICK_PROMPTS,
   type ChatMessage,
   type Citation,
   type Persona,
@@ -34,6 +33,7 @@ import {
   requestAuth,
   requestFirst,
   requestLogout,
+  requestUnfollow,
   requestPersonaUpdate,
   sourceList,
   stockList,
@@ -46,7 +46,7 @@ type ThemePreference = "system" | "light" | "dark";
 
 export function ArthaWorkspace() {
   const [stocks, setStocks] = useState<Stock[]>(DEMO_STOCKS);
-  const [activeSymbol, setActiveSymbol] = useState("TCS");
+  const [activeKey, setActiveKey] = useState("NSE:TCS");
   const [persona, setPersona] = useState<Persona>(DEMO_PERSONA);
   const [sources, setSources] = useState<ResearchSource[]>(DEMO_SOURCES);
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
@@ -57,6 +57,7 @@ export function ArthaWorkspace() {
   const [followTicker, setFollowTicker] = useState("");
   const [exchange, setExchange] = useState<"NSE" | "BSE">("NSE");
   const [followStatus, setFollowStatus] = useState("");
+  const [pendingUnfollow, setPendingUnfollow] = useState<string | null>(null);
   const [ingesting, setIngesting] = useState(false);
   const [personaOpen, setPersonaOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -72,8 +73,8 @@ export function ArthaWorkspace() {
   const [welcomeTitle, setWelcomeTitle] = useState("Your research desk is ready.");
 
   const activeStock = useMemo(
-    () => stocks.find((stock) => stock.symbol === activeSymbol) ?? stocks[0],
-    [activeSymbol, stocks],
+    () => stocks.find((stock) => `${stock.exchange}:${stock.symbol}` === activeKey) ?? stocks[0],
+    [activeKey, stocks],
   );
 
   useEffect(() => {
@@ -315,7 +316,7 @@ export function ArthaWorkspace() {
       return;
     }
     if (stocks.some((stock) => stock.symbol === symbol)) {
-      setActiveSymbol(symbol);
+      setActiveKey(`${selectedExchange}:${symbol}`);
       setFollowTicker("");
       setFollowStatus(`${symbol} is already on your research list.`);
       return;
@@ -362,10 +363,39 @@ export function ArthaWorkspace() {
         updatedAt: new Date().toISOString(),
       } satisfies Stock);
     setStocks((current) => [...current, nextStock]);
-    setActiveSymbol(symbol);
+    setActiveKey(`${selectedExchange}:${symbol}`);
     setFollowTicker("");
     await refreshSources(symbol);
     setFollowStatus(`${symbol} added. Fundamentals and news are queued.`);
+  }
+
+  async function handleUnfollow(stock: Stock) {
+    const key = `${stock.exchange}:${stock.symbol}`;
+    if (pendingUnfollow !== key) {
+      setPendingUnfollow(key);
+      return;
+    }
+    setPendingUnfollow(null);
+    setFollowStatus(`Removing ${stock.symbol} from your research list.`);
+    if (connection === "live") {
+      try {
+        await requestUnfollow(stock.symbol, stock.exchange);
+      } catch {
+        setFollowStatus(`Could not remove ${stock.symbol}. Please try again.`);
+        return;
+      }
+    }
+    const remaining = stocks.filter(
+      (item) => !(item.symbol === stock.symbol && item.exchange === stock.exchange),
+    );
+    setStocks(remaining);
+    if (activeStock?.symbol === stock.symbol && activeStock.exchange === stock.exchange) {
+      setActiveKey(remaining[0] ? `${remaining[0].exchange}:${remaining[0].symbol}` : "");
+    }
+    setSources([]);
+    setMessages([]);
+    setLastCitations([]);
+    setFollowStatus(`${stock.symbol} removed from your research list.`);
   }
 
   async function handleIngest() {
@@ -522,26 +552,41 @@ export function ArthaWorkspace() {
             <EmptyState title="No equities followed" body="Add an NSE or BSE ticker to begin live research." />
           ) : (
             <div className="stock-list" aria-label="Followed equities">
-              {stocks.map((stock) => (
-                <button
-                  className={`stock-row ${activeStock?.symbol === stock.symbol ? "is-active" : ""}`}
-                  key={`${stock.exchange}-${stock.symbol}`}
-                  type="button"
-                  onClick={() => setActiveSymbol(stock.symbol)}
-                  aria-pressed={activeStock?.symbol === stock.symbol}
-                >
-                  <span className="stock-main">
-                    <strong>{stock.symbol}</strong>
-                    <small>{stock.exchange} / {stock.sector}</small>
-                  </span>
-                  <span className="stock-price">
-                    <strong>{formatPrice(stock.price)}</strong>
-                    <small className={stock.changePct >= 0 ? "positive" : "negative"}>
-                      {stock.changePct >= 0 ? "+" : ""}{stock.changePct.toFixed(2)}%
-                    </small>
-                  </span>
-                </button>
-              ))}
+              {stocks.map((stock) => {
+                const key = `${stock.exchange}:${stock.symbol}`;
+                const isActive = activeStock?.symbol === stock.symbol && activeStock.exchange === stock.exchange;
+                const isPendingRemoval = pendingUnfollow === key;
+                return (
+                  <div className={`stock-row ${isActive ? "is-active" : ""}`} key={`${stock.exchange}-${stock.symbol}`}>
+                    <button
+                      className="stock-select"
+                      type="button"
+                      onClick={() => setActiveKey(`${stock.exchange}:${stock.symbol}`)}
+                      aria-pressed={isActive}
+                      aria-label={`${stock.symbol} ${stock.exchange} / ${stock.sector} ${formatPrice(stock.price)} ${stock.changePct >= 0 ? "+" : ""}${stock.changePct.toFixed(2)}%`}
+                    >
+                      <span className="stock-main">
+                        <strong>{stock.symbol}</strong>
+                        <small>{stock.exchange} / {stock.sector}</small>
+                      </span>
+                      <span className="stock-price">
+                        <strong>{formatPrice(stock.price)}</strong>
+                        <small className={stock.changePct >= 0 ? "positive" : "negative"}>
+                          {stock.changePct >= 0 ? "+" : ""}{stock.changePct.toFixed(2)}%
+                        </small>
+                      </span>
+                    </button>
+                    <button
+                      className="stock-remove"
+                      type="button"
+                      onClick={() => void handleUnfollow(stock)}
+                      aria-label={`${isPendingRemoval ? "Confirm remove" : "Remove"} ${stock.symbol}`}
+                    >
+                      {isPendingRemoval ? "Confirm" : "Remove"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -587,7 +632,8 @@ export function ArthaWorkspace() {
           <div className="message-thread" aria-live="polite" aria-busy={isThinking}>
             {messages.length === 0 ? (
               <ResearchStarter
-                symbol={activeStock?.symbol}
+                activeStock={activeStock}
+                followedStocks={stocks}
                 onAsk={(prompt) => void sendQuestion(prompt)}
               />
             ) : (
@@ -622,13 +668,6 @@ export function ArthaWorkspace() {
           </div>
 
           <div className="composer-wrap">
-            <div className="quick-prompts" aria-label="Suggested research prompts">
-              {QUICK_PROMPTS.map((prompt) => (
-                <button type="button" key={prompt} onClick={() => void sendQuestion(prompt)}>
-                  {prompt}
-                </button>
-              ))}
-            </div>
             <form className="composer" aria-label="Ask Artha" onSubmit={handleSubmit}>
               <label className="sr-only" htmlFor="question">Ask Artha about an Indian equity</label>
               <textarea
@@ -988,18 +1027,27 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 }
 
 function ResearchStarter({
-  symbol,
+  activeStock,
+  followedStocks,
   onAsk,
 }: {
-  symbol?: string;
+  activeStock?: Stock;
+  followedStocks: Stock[];
   onAsk: (prompt: string) => void;
 }) {
+  const comparisonStock = followedStocks.find(
+    (stock) => stock.symbol !== activeStock?.symbol,
+  );
   const prompts = [
-    QUICK_PROMPTS[0],
-    symbol
-      ? `Summarise the latest evidence for ${symbol} and cite every claim.`
-      : "Summarise the latest evidence and cite every claim.",
-    QUICK_PROMPTS[2],
+    activeStock && comparisonStock
+      ? `Compare ${activeStock.symbol} and ${comparisonStock.symbol}`
+      : activeStock
+        ? `Summarise the latest evidence for ${activeStock.symbol}`
+        : "Follow an equity to begin research",
+    activeStock
+      ? `What changed this week for ${activeStock.symbol}?`
+      : "What changed this week for my followed equities?",
+    "Find a fit for my profile",
   ];
   return (
     <div className="research-starter">
@@ -1011,7 +1059,9 @@ function ResearchStarter({
       </p>
       <div className="starter-prompts" aria-label="Research question examples">
         {prompts.map((prompt) => (
-          <button type="button" key={prompt} onClick={() => onAsk(prompt)}>{prompt}</button>
+          <button type="button" key={prompt} onClick={() => onAsk(prompt)} disabled={!activeStock}>
+            {prompt}
+          </button>
         ))}
       </div>
     </div>

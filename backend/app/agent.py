@@ -25,6 +25,7 @@ class AgentState(TypedDict, total=False):
     ticker: str | None
     persona_updated: bool
     is_recommendation: bool
+    is_recent: bool
     recommendations: tuple[RankedStock, ...]
     sources: tuple[SourceDocument, ...]
     citations: tuple[Citation, ...]
@@ -88,7 +89,15 @@ class EquityResearchAgent:
                 "compare",
             )
         )
-        return {"persona_updated": changed, "is_recommendation": recommendation}
+        recent = any(
+            phrase in state["message"].lower()
+            for phrase in ("what changed", "this week", "latest", "recent", "news", "update")
+        )
+        return {
+            "persona_updated": changed,
+            "is_recommendation": recommendation,
+            "is_recent": recent,
+        }
 
     async def _retrieve_node(self, state: AgentState) -> dict[str, Any]:
         tickers = await self._repository.list_followed_tickers(state["user_id"])
@@ -105,6 +114,27 @@ class EquityResearchAgent:
             return {"recommendations": ranked, "sources": sources}
         if not tickers:
             return {"sources": ()}
+        if state.get("is_recent"):
+            recent_sources: list[SourceDocument] = []
+            for followed_ticker in tickers:
+                documents = await self._repository.list_documents(followed_ticker)
+                news = sorted(
+                    (item for item in documents if item.kind is DocumentKind.NEWS),
+                    key=lambda item: item.published_at,
+                    reverse=True,
+                )
+                fundamentals = next(
+                    (
+                        item
+                        for item in documents
+                        if item.kind is DocumentKind.FUNDAMENTALS
+                    ),
+                    None,
+                )
+                if fundamentals:
+                    recent_sources.append(fundamentals)
+                recent_sources.extend(news[:3])
+            return {"sources": tuple(recent_sources[: self._retrieval_limit])}
         query_embedding = await self._embedder.embed(state["message"])
         sources = await self._repository.search_documents(
             query_embedding,
@@ -183,6 +213,10 @@ class EquityResearchAgent:
             )
             sentences.append(
                 f"The latest retrieved reporting has a {tone} tone [{news_index}]."
+            )
+        elif fundamentals:
+            sentences.append(
+                "No matching recent news was retrieved for this ticker; the fundamentals source above is the latest indexed evidence [1]."
             )
         return " ".join(sentences) or GroundingGuard.FALLBACK, citations
 

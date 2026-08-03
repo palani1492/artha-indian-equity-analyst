@@ -85,12 +85,15 @@ export async function requestPersonaUpdate(persona: Persona): Promise<unknown> {
   const risk = persona.risk.toLowerCase();
   const payload = {
     risk_tolerance: risk === "moderate" ? "balanced" : risk,
+    style: persona.style,
     dividend_focused: /dividend/i.test(
       [persona.style, ...persona.focus].join(" "),
     ),
     avoid_high_debt: persona.avoid.some((item) => /debt/i.test(item)),
     preferred_sectors: persona.focus,
     excluded_sectors: persona.avoid.filter((item) => !/debt/i.test(item)),
+    priorities: persona.focus,
+    avoid: persona.avoid,
     horizon: persona.horizon,
   };
   try {
@@ -108,6 +111,16 @@ export async function requestPersonaUpdate(persona: Persona): Promise<unknown> {
 
 export async function requestLogout(): Promise<void> {
   await requestJson("/api/v1/auth/logout", { method: "POST" });
+}
+
+export async function requestUnfollow(
+  ticker: string,
+  exchange: "NSE" | "BSE",
+): Promise<void> {
+  const providerTicker = exchange === "BSE" ? `${ticker}.BO` : ticker;
+  await requestJson(`/api/v1/stocks/${encodeURIComponent(providerTicker)}/follow`, {
+    method: "DELETE",
+  });
 }
 
 export function stockList(payload: unknown): Stock[] | null {
@@ -158,6 +171,8 @@ export function personaValue(payload: unknown): Persona | null {
   const avoidHighDebt = value.avoid_high_debt === true;
   const preferredSectors = stringList(value.preferred_sectors, []);
   const excludedSectors = stringList(value.excluded_sectors, []);
+  const priorities = stringList(value.priorities, []);
+  const explicitAvoid = stringList(value.avoid, []);
   const risk = String(value.risk ?? value.risk_appetite ?? value.risk_tolerance ?? DEMO_PERSONA.risk);
   const notes = stringList(value.notes, []);
   return {
@@ -169,15 +184,20 @@ export function personaValue(payload: unknown): Persona | null {
         (dividendFocused ? "Dividend and quality" : DEMO_PERSONA.style),
     ),
     focus:
-      value.preferred_sectors !== undefined
+      value.priorities !== undefined || value.preferred_sectors !== undefined
         ? uniqueStrings([
+            ...priorities,
             ...preferredSectors,
             ...(dividendFocused ? ["Reliable dividends"] : []),
           ])
         : stringList(value.focus ?? value.preferences, DEMO_PERSONA.focus),
     avoid:
-      value.excluded_sectors !== undefined
-        ? uniqueStrings([...excludedSectors, ...(avoidHighDebt ? ["High debt"] : [])])
+      value.avoid !== undefined || value.excluded_sectors !== undefined
+        ? uniqueStrings([
+            ...explicitAvoid,
+            ...excludedSectors,
+            ...(avoidHighDebt ? ["High debt"] : []),
+          ])
         : stringList(value.avoid ?? value.exclusions, DEMO_PERSONA.avoid),
     note: String(
       value.note ?? value.summary ?? (notes.length ? notes.join(" ") : DEMO_PERSONA.note),

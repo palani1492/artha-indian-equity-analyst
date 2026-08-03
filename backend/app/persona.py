@@ -102,7 +102,10 @@ class PersonaExtractor:
 def persona_as_text(persona: InvestorPersona) -> str:
     sectors = ", ".join(persona.preferred_sectors) or "no sector preference"
     return (
-        f"Risk tolerance: {persona.risk_tolerance}. Dividend focused: {persona.dividend_focused}. "
+        f"Risk tolerance: {persona.risk_tolerance}. Style: {persona.style}. "
+        f"Dividend focused: {persona.dividend_focused}. "
         f"Avoid high debt: {persona.avoid_high_debt}. Maximum debt to equity: "
-        f"{persona.max_debt_to_equity}. Preferred sectors: {sectors}. Horizon: {persona.horizon}."
+        f"{persona.max_debt_to_equity}. Preferred sectors: {sectors}. "
+        f"Priorities: {', '.join(persona.priorities) or 'none'}. "
+        f"Avoid: {', '.join(persona.avoid) or 'none'}. Horizon: {persona.horizon}."
     )

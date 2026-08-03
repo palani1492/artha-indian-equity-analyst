@@ -476,6 +476,34 @@
   text-align: left;
 }
 
+.stock-select {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.stock-remove {
+  align-self: center;
+  min-height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.stock-remove:hover,
+.stock-remove:focus-visible {
+  border-color: var(--danger, #c77777);
+  color: var(--danger, #c77777);
+}
+
 .stock-row::before {
   position: absolute;
   top: 10px;

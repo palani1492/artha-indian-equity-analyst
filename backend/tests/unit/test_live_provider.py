@@ -46,6 +46,21 @@ def test_live_provider_parses_only_relevant_rss_items_and_tags_sentiment() -> No
     assert documents[0].published_at.tzinfo is UTC
 
 
+def test_live_provider_matches_company_aliases_in_rss_items() -> None:
+    provider = LiveIndianMarketDataProvider(rss_feeds=())
+    stock = _stock().model_copy(
+        update={"ticker": "DRREDDY", "name": "Dr. Reddy's Laboratories Limited"}
+    )
+    payload = b"""<rss><channel>
+      <item><title>Dr Reddy's Laboratories profit growth beats estimates</title>
+        <description>Dr Reddy's wins a large order.</description>
+        <link>https://news.example.test/drreddy</link>
+        <pubDate>Fri, 01 Aug 2026 09:00:00 +0000</pubDate></item>
+    </channel></rss>"""
+    documents = provider._parse_feed(payload, stock)
+    assert len(documents) == 1
+
+
 def test_live_fundamentals_document_contains_groundable_inr_values() -> None:
     document = LiveIndianMarketDataProvider._fundamentals_document(_stock())
     assert "INR 4125.50" in document.content
