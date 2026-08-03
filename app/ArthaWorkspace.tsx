@@ -51,6 +51,11 @@ type AnswerEvidence = {
 };
 const AUTO_REFRESH_MS = 120_000;
 
+function scopedStorageKey(prefix: string, user: AuthUser | null): string {
+  const identity = user?.email || "guest";
+  return `${prefix}:${encodeURIComponent(identity)}`;
+}
+
 export function ArthaWorkspace() {
   const [stocks, setStocks] = useState<Stock[]>(DEMO_STOCKS);
   const [activeKey, setActiveKey] = useState("NSE:TCS");
@@ -139,7 +144,10 @@ export function ArthaWorkspace() {
         setTheme(storedTheme);
         applyTheme(storedTheme);
       }
-      const storedPersona = window.localStorage.getItem("artha-persona");
+      const storedPersonaKey = window.localStorage.getItem("artha-persona:guest")
+        ? "artha-persona:guest"
+        : "artha-persona";
+      const storedPersona = window.localStorage.getItem(storedPersonaKey);
       if (storedPersona) {
         try {
           const parsed = personaValue(JSON.parse(storedPersona));
@@ -148,7 +156,7 @@ export function ArthaWorkspace() {
             setPersonaDraft(parsed);
           }
         } catch {
-          window.localStorage.removeItem("artha-persona");
+          window.localStorage.removeItem(storedPersonaKey);
         }
       }
     });
@@ -211,11 +219,24 @@ export function ArthaWorkspace() {
         setAuthState(nextUser ? "authenticated" : "guest");
         const rawPersona = personaResult.status === "fulfilled" ? personaResult.value : null;
         const personaVersion = isRecord(rawPersona) ? Number(rawPersona.version ?? 1) : 1;
-        const hasLocalPersona = Boolean(window.localStorage.getItem("artha-persona"));
         if (nextUser) {
-          const firstVisit = !window.localStorage.getItem("artha-tutorial-seen");
-          const needsOnboarding = personaVersion <= 1 && !hasLocalPersona;
-          if (firstVisit && needsOnboarding) setTutorialOpen(true);
+          const personaKey = scopedStorageKey("artha-persona", nextUser);
+          const tutorialKey = scopedStorageKey("artha-tutorial-seen", nextUser);
+          const storedPersona = window.localStorage.getItem(personaKey);
+          if (storedPersona) {
+            try {
+              const parsed = personaValue(JSON.parse(storedPersona));
+              if (parsed) {
+                setPersona(parsed);
+                setPersonaDraft(parsed);
+              }
+            } catch {
+              window.localStorage.removeItem(personaKey);
+            }
+          }
+          const firstVisit = !window.localStorage.getItem(tutorialKey);
+          const needsOnboarding = personaVersion <= 1 && !storedPersona;
+          if (needsOnboarding) setTutorialOpen(true);
           if (needsOnboarding) {
             setOpenMemoryAfterTutorial(true);
             if (!firstVisit) {
@@ -276,7 +297,10 @@ export function ArthaWorkspace() {
   function persistPersona(nextPersona: Persona) {
     setPersona(nextPersona);
     setPersonaDraft(nextPersona);
-    window.localStorage.setItem("artha-persona", JSON.stringify(nextPersona));
+    window.localStorage.setItem(
+      scopedStorageKey("artha-persona", user),
+      JSON.stringify(nextPersona),
+    );
   }
 
   async function refreshSources(ticker?: string, force = false) {
@@ -597,11 +621,6 @@ export function ArthaWorkspace() {
         <div className="brand-lockup" aria-label="Artha home">
           <strong>Artha</strong>
         </div>
-        <nav className="primary-nav" aria-label="Primary navigation">
-          <a href="#following">Following</a>
-          <a href="#research-thread" aria-current="page">Research desk</a>
-          <a href="#investor-memory">Memory</a>
-        </nav>
         <div className="topbar-actions">
           <ConnectionBadge mode={connection} />
           <button className="text-button theme-button" type="button" onClick={cycleTheme}>
@@ -891,7 +910,7 @@ export function ArthaWorkspace() {
       {tutorialOpen ? (
         <OnboardingDialog
           onClose={() => {
-            window.localStorage.setItem("artha-tutorial-seen", "1");
+            window.localStorage.setItem(scopedStorageKey("artha-tutorial-seen", user), "1");
             setTutorialOpen(false);
             if (openMemoryAfterTutorial) {
               setPersonaOpen(true);

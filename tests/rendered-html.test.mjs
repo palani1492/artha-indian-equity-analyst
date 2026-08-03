@@ -39,7 +39,7 @@ test("server-renders the Artha Indian equity research workspace", async () => {
   assert.match(html, /TCS/);
   assert.match(html, /₹/);
   assert.match(html, /<main\b/i);
-  assert.match(html, /aria-label="Primary navigation"/i);
+  assert.doesNotMatch(html, /aria-label="Primary navigation"/i);
   assert.match(html, /aria-label="Ask Artha"/i);
   assert.doesNotMatch(html, /Your site is taking shape|codex-preview|Building your site/i);
   assert.doesNotMatch(html, /[—–]/);

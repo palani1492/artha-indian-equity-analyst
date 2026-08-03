@@ -36,6 +36,7 @@ class AgentState(TypedDict, total=False):
     sources: tuple[SourceDocument, ...]
     citations: tuple[Citation, ...]
     draft: str
+    authoritative_draft: str
     result: ChatResult
 
 
@@ -175,7 +176,11 @@ class EquityResearchAgent:
             ticker = requested[0] if requested else state.get("ticker")
             draft, citations = await self._research_draft(ticker, sources)
         generated = await self._generator.generate(draft, sources) if sources else draft
-        return {"draft": generated, "citations": citations}
+        return {
+            "draft": generated,
+            "authoritative_draft": draft,
+            "citations": citations,
+        }
 
     async def _guard_node(self, state: AgentState) -> dict[str, Any]:
         grounded = self._guard.enforce(
@@ -183,6 +188,20 @@ class EquityResearchAgent:
             state.get("citations", ()),
             state.get("sources", ()),
         )
+        # A provider rewrite must never be able to hide a valid deterministic
+        # answer. If the optional Gemini/OpenAI prose pass is rejected, validate
+        # the authoritative draft and return it with its citations instead of
+        # collapsing a useful response into the generic fallback.
+        if grounded.answer == GroundingGuard.FALLBACK:
+            authoritative = state.get("authoritative_draft", "")
+            if authoritative and authoritative != GroundingGuard.FALLBACK:
+                authoritative_result = self._guard.validate(
+                    authoritative,
+                    state.get("citations", ()),
+                    state.get("sources", ()),
+                )
+                if authoritative_result.is_grounded:
+                    grounded = authoritative_result
         return {
             "result": ChatResult(
                 answer=grounded.answer,

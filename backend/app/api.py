@@ -374,6 +374,31 @@ def create_app(container: Container | None = None) -> FastAPI:
         return await dependencies.repository.list_documents(normalized)
 
     async def chat(payload: ChatRequest, user_id: str) -> ChatResult:
+        # A user can arrive with an existing follow after a deploy or a failed
+        # background refresh. Ensure every requested/followed ticker has at
+        # least one indexed snapshot before retrieval, while keeping upstream
+        # failures isolated to that ticker.
+        followed_tickers = await dependencies.repository.list_followed_tickers(user_id)
+        candidate_tickers = tuple(
+            dict.fromkeys(
+                ((payload.ticker,) if payload.ticker else ()) + followed_tickers
+            )
+        )
+        for ticker in candidate_tickers:
+            if await dependencies.repository.count_documents(ticker) > 0:
+                continue
+            try:
+                await dependencies.ingestion.ingest(ticker)
+            except (
+                KeyError,
+                LookupError,
+                OSError,
+                RuntimeError,
+                TimeoutError,
+                TypeError,
+                ValueError,
+            ):
+                continue
         return await dependencies.agent.chat(user_id, payload.message, payload.ticker)
 
     @app.post("/api/v1/chat", response_model=ChatResult)

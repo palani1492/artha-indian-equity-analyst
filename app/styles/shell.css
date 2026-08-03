@@ -3,7 +3,7 @@
   top: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: 272px minmax(300px, 1fr) auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
   min-height: 64px;
   padding: 0 18px;
@@ -25,13 +25,6 @@
   letter-spacing: -0.045em;
 }
 
-.primary-nav {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-}
-
-.primary-nav a,
 .text-button {
   border: 0;
   border-radius: var(--radius-control);
@@ -42,19 +35,9 @@
   text-decoration: none;
 }
 
-.primary-nav a {
-  padding: 8px 10px;
-}
-
-.primary-nav a:hover,
-.primary-nav a[aria-current="page"],
 .text-button:hover {
   background: var(--surface-subtle);
   color: var(--ink);
-}
-
-.primary-nav a[aria-current="page"] {
-  box-shadow: inset 0 -2px var(--accent);
 }
 
 .topbar-actions {
