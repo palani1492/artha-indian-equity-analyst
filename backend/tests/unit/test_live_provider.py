@@ -99,3 +99,21 @@ async def test_live_provider_skips_an_unavailable_feed() -> None:
 
     provider._fetch_feed = unavailable
     assert await provider._safe_fetch_feed("https://feed.test/rss", _stock()) == ()
+
+
+def test_live_provider_parses_namespaced_atom_entries() -> None:
+    provider = LiveIndianMarketDataProvider(rss_feeds=())
+    payload = b'''<feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>Tata Consultancy Services wins a major order</title>
+        <link href="https://news.example.test/tcs-atom" />
+        <updated>2026-08-01T09:00:00Z</updated>
+        <summary><![CDATA[<p>TCS profit growth beats estimates.</p>]]></summary>
+      </entry>
+    </feed>'''
+
+    documents = provider._parse_feed(payload, _stock())
+
+    assert len(documents) == 1
+    assert str(documents[0].url) == "https://news.example.test/tcs-atom"
+    assert documents[0].published_at.isoformat() == "2026-08-01T09:00:00+00:00"

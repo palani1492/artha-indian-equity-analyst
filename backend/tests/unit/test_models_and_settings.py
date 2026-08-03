@@ -12,7 +12,9 @@ from app.domain.models import (
     SourceDocument,
     Stock,
     normalize_ticker,
+    source_story_fingerprint,
 )
+from app.repositories.memory import InMemoryResearchRepository
 from app.settings import Settings
 
 
@@ -64,12 +66,67 @@ def test_syndicated_article_content_is_deduplicated_across_tracking_urls() -> No
     assert first.content_hash == second.content_hash
 
 
+def test_syndicated_article_fingerprint_ignores_feed_specific_summaries() -> None:
+    published_at = datetime(2026, 8, 1, tzinfo=UTC)
+    first = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.NEWS,
+        title="TCS wins a major order",
+        url="https://source-a.test/story",
+        content="The first publisher summary.",
+        published_at=published_at,
+    )
+    second = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.NEWS,
+        title="TCS wins a major order",
+        url="https://source-b.test/syndicated",
+        content="A different publisher summary.",
+        published_at=published_at,
+    )
+    assert source_story_fingerprint(first) == source_story_fingerprint(second)
+
+
+async def test_memory_repository_deduplicates_same_story_across_feed_urls() -> None:
+    repository = InMemoryResearchRepository()
+    published_at = datetime(2026, 8, 1, tzinfo=UTC)
+    first = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.NEWS,
+        title="TCS wins a major order",
+        url="https://source-a.test/story",
+        content="The first publisher summary.",
+        published_at=published_at,
+    )
+    second = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.NEWS,
+        title="TCS wins a major order",
+        url="https://source-b.test/syndicated",
+        content="A different publisher summary.",
+        published_at=published_at,
+    )
+
+    assert await repository.insert_document(first, (1.0,)) is True
+    assert await repository.insert_document(second, (1.0,)) is True
+    assert await repository.deduplicate_documents("TCS") == 1
+    assert await repository.count_documents("TCS") == 1
+
+
 def test_csv_environment_lists_are_parsed_without_json(monkeypatch) -> None:
     monkeypatch.setenv("CORS_ORIGINS", "https://a.test,https://b.test")
     monkeypatch.setenv("RSS_FEEDS", "https://feed-a.test/rss,https://feed-b.test/rss")
     settings = Settings(_env_file=None)
     assert settings.cors_origins == ("https://a.test", "https://b.test")
     assert settings.rss_feeds == ("https://feed-a.test/rss", "https://feed-b.test/rss")
+
+
+def test_live_defaults_include_broad_indian_news_coverage() -> None:
+    settings = Settings(_env_file=None)
+    assert len(settings.rss_feeds) == 7
+    assert any("business-standard.com" in feed for feed in settings.rss_feeds)
+    assert "https://www.sebi.gov.in/sebirss.xml" in settings.rss_feeds
+    assert settings.rss_max_items_per_feed == 100
 
 
 def test_blank_optional_session_secret_is_treated_as_unconfigured() -> None:

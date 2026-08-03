@@ -12,6 +12,7 @@ from app.domain.models import (
     SourceDocument,
     Stock,
     canonical_source_url,
+    source_story_fingerprint,
 )
 
 
@@ -188,19 +189,33 @@ class InMemoryResearchRepository:
                 key=lambda item: (item[1].document.published_at, item[0]),
                 reverse=True,
             )
-            seen: set[tuple[str, str, str]] = set()
+            seen: set[tuple[str, str]] = set()
+            seen_news_urls: set[tuple[str, str]] = set()
+            seen_news_stories: set[tuple[str, str]] = set()
             stale_ids: set[str] = set()
             for document_id, stored in candidates:
                 document = stored.document
                 if ticker is not None and document.ticker != ticker:
                     continue
-                identity = (
-                    document.ticker,
-                    document.kind.value,
-                    canonical_source_url(document.url)
-                    if document.kind is DocumentKind.NEWS
-                    else document.kind.value,
-                )
+                if document.kind is DocumentKind.NEWS:
+                    url_identity = (
+                        document.ticker,
+                        canonical_source_url(document.url),
+                    )
+                    story_identity = (
+                        document.ticker,
+                        source_story_fingerprint(document),
+                    )
+                    if (
+                        url_identity in seen_news_urls
+                        or story_identity in seen_news_stories
+                    ):
+                        stale_ids.add(document_id)
+                        continue
+                    seen_news_urls.add(url_identity)
+                    seen_news_stories.add(story_identity)
+                    continue
+                identity = (document.ticker, document.kind.value)
                 if identity in seen:
                     stale_ids.add(document_id)
                     continue

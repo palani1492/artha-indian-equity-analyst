@@ -175,6 +175,15 @@ class SourceDocument(BaseModel):
         )
 
 
+def source_story_fingerprint(document: SourceDocument) -> str:
+    """Return a stable content fingerprint for cross-feed news deduplication."""
+    normalized_title = " ".join(document.title.lower().split())
+    identity_text = normalized_title or " ".join(document.content.lower().split())[:240]
+    published_day = document.published_at.astimezone(UTC).date().isoformat()
+    normalized = f"{identity_text}|{published_day}"
+    return hashlib.sha256(normalized.encode()).hexdigest()
+
+
 class Citation(BaseModel):
     model_config = ConfigDict(frozen=True)
 

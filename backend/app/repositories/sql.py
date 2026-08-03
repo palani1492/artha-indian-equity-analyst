@@ -33,6 +33,7 @@ from app.domain.models import (
     SourceDocument,
     Stock,
     canonical_source_url,
+    source_story_fingerprint,
 )
 
 
@@ -314,16 +315,25 @@ class SqlAlchemyResearchRepository:
             query = query.where(DocumentRow.ticker == ticker)
         async with self._sessions.begin() as session:
             rows = list((await session.scalars(query)).all())
-            seen: set[tuple[str, str, str]] = set()
+            seen: set[tuple[str, str]] = set()
+            seen_news_urls: set[tuple[str, str]] = set()
+            seen_news_stories: set[tuple[str, str]] = set()
             stale: list[DocumentRow] = []
             for row in rows:
-                identity = (
-                    row.ticker,
-                    row.kind,
-                    canonical_source_url(row.url)
-                    if row.kind == DocumentKind.NEWS.value
-                    else row.kind,
-                )
+                if row.kind == DocumentKind.NEWS.value:
+                    document = self._document(row)
+                    url_identity = (row.ticker, canonical_source_url(row.url))
+                    story_identity = (row.ticker, source_story_fingerprint(document))
+                    if (
+                        url_identity in seen_news_urls
+                        or story_identity in seen_news_stories
+                    ):
+                        stale.append(row)
+                        continue
+                    seen_news_urls.add(url_identity)
+                    seen_news_stories.add(story_identity)
+                    continue
+                identity = (row.ticker, row.kind)
                 if identity in seen:
                     stale.append(row)
                 else:

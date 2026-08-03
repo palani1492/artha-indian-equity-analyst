@@ -189,11 +189,13 @@ class LiveIndianMarketDataProvider:
         rss_feeds: tuple[str, ...],
         request_timeout_seconds: float = 10.0,
         min_request_interval_seconds: float = 1.0,
+        max_items_per_feed: int = 100,
         user_agent: str = "SentellentResearchBot/1.0 (+research demo; respectful RSS polling)",
     ) -> None:
         self._rss_feeds = rss_feeds
         self._timeout = request_timeout_seconds
         self._minimum_interval = min_request_interval_seconds
+        self._max_items_per_feed = max_items_per_feed
         self._user_agent = user_agent
         self._request_lock = asyncio.Lock()
         self._last_request_at = 0.0
@@ -299,17 +301,28 @@ class LiveIndianMarketDataProvider:
         root = ET.fromstring(payload)
         matches: list[SourceDocument] = []
         aliases = self._company_aliases(stock)
-        for item in root.findall(".//item")[:100]:
-            title = self._text(item, "title")
-            description = self._clean_html(self._text(item, "description"))
-            combined = f"{title} {description}"
+        entries = [
+            element
+            for element in root.iter()
+            if self._local_name(element.tag) in {"item", "entry"}
+        ][: self._max_items_per_feed]
+        for item in entries:
+            title = self._element_text(item, {"title"})
+            description = self._clean_html(
+                self._element_text(item, {"description", "summary", "content", "encoded"})
+            )
+            combined = " ".join(part for part in (title, description) if part).strip()
+            if not combined:
+                continue
             normalized_combined = self._normalize_company_text(combined)
             if not any(alias in normalized_combined for alias in aliases):
                 continue
-            raw_url = self._text(item, "link")
+            raw_url = self._entry_url(item)
             if not raw_url.startswith(("http://", "https://")):
                 continue
-            published_at = self._published_at(self._text(item, "pubDate"))
+            published_at = self._published_at(
+                self._element_text(item, {"pubDate", "published", "updated", "date"})
+            )
             matches.append(
                 SourceDocument.create(
                     ticker=stock.ticker,
@@ -372,9 +385,30 @@ class LiveIndianMarketDataProvider:
         )
 
     @staticmethod
-    def _text(item: ET.Element, tag: str) -> str:
-        value = item.findtext(tag)
-        return html.unescape(value.strip()) if value else ""
+    def _local_name(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1].lower()
+
+    @classmethod
+    def _element_text(cls, item: ET.Element, names: set[str]) -> str:
+        wanted = {name.lower() for name in names}
+        for element in item.iter():
+            if cls._local_name(element.tag) not in wanted:
+                continue
+            value = "".join(element.itertext()).strip()
+            if value:
+                return html.unescape(value)
+        return ""
+
+    @classmethod
+    def _entry_url(cls, item: ET.Element) -> str:
+        for element in item.iter():
+            if cls._local_name(element.tag) != "link":
+                continue
+            href = element.attrib.get("href", "").strip()
+            value = href or "".join(element.itertext()).strip()
+            if value.startswith(("http://", "https://")):
+                return value
+        return ""
 
     @staticmethod
     def _clean_html(value: str) -> str:
@@ -383,7 +417,13 @@ class LiveIndianMarketDataProvider:
     @staticmethod
     def _published_at(value: str) -> datetime:
         try:
-            parsed = parsedate_to_datetime(value)
+            parsed = datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            try:
+                parsed = parsedate_to_datetime(value)
+            except (TypeError, ValueError):
+                return datetime.now(UTC)
+        try:
             return (
                 parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
             )

@@ -43,9 +43,14 @@ class Settings(BaseSettings):
         "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
         "https://www.moneycontrol.com/rss/marketreports.xml",
         "https://www.livemint.com/rss/markets",
+        "https://www.business-standard.com/rss/markets-106.rss",
+        "https://www.business-standard.com/rss/markets/stock-market-news-10618.rss",
+        "https://www.business-standard.com/rss/markets/news-10601.rss",
+        "https://www.sebi.gov.in/sebirss.xml",
     )
     rss_request_timeout_seconds: float = Field(default=10.0, ge=1, le=60)
     rss_min_request_interval_seconds: float = Field(default=1.0, ge=0.25, le=60)
+    rss_max_items_per_feed: int = Field(default=100, ge=10, le=500)
 
     google_client_id: str | None = None
     google_client_secret: str | None = None

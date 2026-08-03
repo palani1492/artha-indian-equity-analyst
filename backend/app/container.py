@@ -59,6 +59,7 @@ def build_container(settings: Settings | None = None) -> Container:
             rss_feeds=runtime.rss_feeds,
             request_timeout_seconds=runtime.rss_request_timeout_seconds,
             min_request_interval_seconds=runtime.rss_min_request_interval_seconds,
+            max_items_per_feed=runtime.rss_max_items_per_feed,
         )
     else:
         provider = DemoMarketDataProvider()

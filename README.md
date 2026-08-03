@@ -21,7 +21,7 @@ runs migrations, rolls out ECS services, and smoke-tests the public application.
 - Follow NSE/BSE symbols such as `RELIANCE`, `TCS`, and `HDFCBANK`.
 - Remove a followed equity with a confirmation step; the watchlist and active
   research thread update immediately.
-- Ingest deduplicated fundamentals and recent Indian-market news.
+- Ingest deduplicated fundamentals and recent Indian-market news from seven free RSS/Atom feeds spanning Economic Times, Moneycontrol, LiveMint, Business Standard, and SEBI.
 - Ask ticker questions and inspect the exact sources behind each answer.
 - Teach the agent a risk, dividend, debt, sector, and time-horizon persona in
   chat or edit that memory explicitly.
