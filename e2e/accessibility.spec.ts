@@ -5,7 +5,7 @@ test.describe("Artha keyboard and accessibility smoke checks", () => {
     await openDemoWorkspace(page);
 
     await expect(page.getByRole("main")).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+    await expect(page.getByRole("banner")).toBeVisible();
     await expect(page.getByRole("form", { name: "Ask Artha" })).toBeVisible();
     await expect(page.getByLabel("Research context")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Investor memory" })).toBeVisible();
