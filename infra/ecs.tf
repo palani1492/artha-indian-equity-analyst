@@ -98,7 +98,8 @@ resource "aws_ecs_task_definition" "backend" {
   }
 
   volume {
-    name = "backend-tmp"
+    name                 = "backend-tmp"
+    configure_at_launch = false
   }
 
   container_definitions = jsonencode([{
@@ -149,8 +150,10 @@ resource "aws_ecs_task_definition" "backend" {
     ]
     healthCheck = {
       command = [
-        "CMD-SHELL",
-        "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\" || exit 1"
+        "CMD",
+        "python3",
+        "-c",
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
       ]
       interval    = 30
       timeout     = 5
