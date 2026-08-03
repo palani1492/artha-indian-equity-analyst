@@ -189,7 +189,10 @@ jobs:
         run: bash scripts/run-migrations.sh
 
       - name: Terraform plan
-        run: terraform plan -out=tfplan
+        # The production deploy role intentionally omits broad tag-read APIs.
+        # The remote state is refreshed during the targeted registration step;
+        # planning without a second refresh keeps the role least-privileged.
+        run: terraform plan -refresh=false -out=tfplan
         working-directory: infra
 
       - name: Upload Terraform plan
