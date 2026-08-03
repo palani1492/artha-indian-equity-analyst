@@ -183,7 +183,7 @@ variable "ingestion_schedule_enabled" {
 variable "ingestion_command" {
   description = "Backend container command used by the scheduled one-off ingestion task."
   type        = list(string)
-  default     = ["python", "-m", "app.jobs.ingest", "--all-followed"]
+  default     = ["-m", "app.jobs.ingest", "--all-followed"]
 }
 
 variable "backend_environment" {

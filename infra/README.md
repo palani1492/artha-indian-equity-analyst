@@ -118,7 +118,7 @@ Important production variables:
 | `image_tag` | `latest` | CI always overrides with the immutable commit SHA |
 | `ingestion_schedule_expression` | `rate(6 hours)` | Scheduled refresh cadence |
 | `ingestion_schedule_enabled` | `true` | Enables or pauses refresh jobs |
-| `ingestion_command` | `python -m app.jobs.ingest --all-followed` | Scheduled container command |
+| `ingestion_command` | `-m app.jobs.ingest --all-followed` | Scheduled container command (distroless Python entrypoint) |
 | `oauth_callback_rate_limit` | `100` | Per-IP OAuth callback limit in each five-minute WAF window |
 | `backend_environment` | `{}` | Extra non-secret backend environment settings |
 

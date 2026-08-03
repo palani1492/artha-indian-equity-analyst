@@ -14,7 +14,7 @@ task_arn="$(aws ecs run-task \
   --task-definition "${BACKEND_TASK_DEFINITION}" \
   --launch-type FARGATE \
   --network-configuration "${network_configuration}" \
-  --overrides '{"containerOverrides":[{"name":"backend","command":["alembic","upgrade","head"]}]}' \
+  --overrides '{"containerOverrides":[{"name":"backend","command":["-m","alembic","upgrade","head"]}]}' \
   --query 'tasks[0].taskArn' \
   --output text)"
 
