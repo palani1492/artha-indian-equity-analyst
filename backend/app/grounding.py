@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 
 from app.domain.models import Citation, GroundingResult, SourceDocument
 
@@ -130,10 +131,13 @@ class GroundingGuard:
         )
         if not valid_citations:
             return False
-        normalized_source = cited_text.replace(",", "")
+        source_numbers = {
+            value
+            for value in GroundingGuard._numeric_values(cited_text)
+        }
         numbers_supported = all(
-            number.replace(",", "").rstrip("%") in normalized_source
-            for number in numeric_claims
+            value in source_numbers
+            for value in GroundingGuard._numeric_values(" ".join(numeric_claims))
         )
         claim_words = {
             word
@@ -149,6 +153,16 @@ class GroundingGuard:
             not claim_words or len(supported) / len(claim_words) >= 0.5
         )
         return numbers_supported and qualitative_supported
+
+    @staticmethod
+    def _numeric_values(text: str) -> tuple[Decimal, ...]:
+        values: list[Decimal] = []
+        for raw in NUMBER_PATTERN.findall(text):
+            try:
+                values.append(Decimal(raw.replace(",", "").rstrip("%")))
+            except InvalidOperation:
+                continue
+        return tuple(values)
 
     @staticmethod
     def _source_evidence_text(source: SourceDocument) -> str:

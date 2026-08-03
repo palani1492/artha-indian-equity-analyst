@@ -36,6 +36,24 @@ def test_numeric_claim_requires_a_valid_citation_and_source_support() -> None:
     assert hallucinated.is_grounded is False
 
 
+def test_numeric_claim_accepts_equivalent_live_decimal_formatting() -> None:
+    doc = SourceDocument.create(
+        ticker="INFY",
+        kind=DocumentKind.FUNDAMENTALS,
+        title="Infosys live fundamentals",
+        url="https://example.test/infy",
+        content="Infosys price is INR 1180.0 and debt-to-equity is 0.09541.",
+        published_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    citation = Citation(index=1, document_id=doc.id, title=doc.title, url=doc.url)
+    result = GroundingGuard().validate(
+        "Infosys trades at INR 1,180.00 and debt-to-equity is 0.095410 [1].",
+        (citation,),
+        (doc,),
+    )
+    assert result.is_grounded is True
+
+
 def test_guard_rejects_non_inr_currency_and_unknown_citations() -> None:
     doc = source()
     guard = GroundingGuard()
