@@ -87,7 +87,13 @@ class ResilientAnswerGenerator:
         if self._primary is not None:
             try:
                 return await self._primary.generate(draft, sources)
-            except (OpenAIError, httpx.HTTPError, RuntimeError, TimeoutError, ValueError):
+            except (
+                OpenAIError,
+                httpx.HTTPError,
+                RuntimeError,
+                TimeoutError,
+                ValueError,
+            ):
                 return await self._fallback.generate(draft, sources)
         return await self._fallback.generate(draft, sources)
 

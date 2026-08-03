@@ -79,9 +79,7 @@ def build_container(settings: Settings | None = None) -> Container:
             runtime.openai_api_key, runtime.openai_chat_model
         )
     if runtime.ai_provider.lower() == "gemini" and runtime.gemini_api_key:
-        gemini_client = GeminiTextClient(
-            runtime.gemini_api_key, runtime.gemini_model
-        )
+        gemini_client = GeminiTextClient(runtime.gemini_api_key, runtime.gemini_model)
     embedder = ResilientCachedEmbedder(openai_embedder, local_embedder)
     primary_generator = (
         GeminiAnswerGenerator(gemini_client)

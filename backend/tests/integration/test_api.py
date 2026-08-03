@@ -4,11 +4,10 @@ from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
 import jwt
-from fastapi.testclient import TestClient
-
 from app.api import create_app
 from app.container import build_container
 from app.settings import Settings
+from fastapi.testclient import TestClient
 
 
 def test_health_is_public(client) -> None:
@@ -52,13 +51,19 @@ def test_unfollow_removes_stock_from_user_watchlist(client, auth_headers) -> Non
     assert client.get("/api/v1/stocks", headers=auth_headers).json() == []
 
 
-def test_versioned_sources_and_ingest_routes_are_available(client, auth_headers) -> None:
+def test_versioned_sources_and_ingest_routes_are_available(
+    client, auth_headers
+) -> None:
     followed = client.post("/api/v1/stocks/TCS/follow", headers=auth_headers)
     assert followed.status_code == 201
-    assert client.get("/api/v1/sources?ticker=TCS", headers=auth_headers).status_code == 200
-    assert client.post(
-        "/api/v1/stocks/TCS/ingest", headers=auth_headers
-    ).status_code == 200
+    assert (
+        client.get("/api/v1/sources?ticker=TCS", headers=auth_headers).status_code
+        == 200
+    )
+    assert (
+        client.post("/api/v1/stocks/TCS/ingest", headers=auth_headers).status_code
+        == 200
+    )
 
 
 def test_follow_stock_and_grounded_chat_flow(client, auth_headers) -> None:
@@ -104,7 +109,9 @@ def test_refresh_route_rehydrates_every_followed_quote_and_compacts_sources(
 ) -> None:
     for ticker in ("TCS", "INFY"):
         assert (
-            client.post(f"/api/v1/stocks/{ticker}/follow", headers=auth_headers).status_code
+            client.post(
+                f"/api/v1/stocks/{ticker}/follow", headers=auth_headers
+            ).status_code
             == 201
         )
     refreshed = client.post("/api/v1/refresh", headers=auth_headers)
@@ -320,8 +327,12 @@ def test_bogus_oauth_callbacks_cannot_exhaust_valid_state_and_nonces_are_isolate
         second_state = parse_qs(urlsplit(second_login.headers["location"]).query)[
             "state"
         ][0]
-        first_nonce = jwt.decode(first_state, session_key, algorithms=["HS256"])["nonce"]
-        second_nonce = jwt.decode(second_state, session_key, algorithms=["HS256"])["nonce"]
+        first_nonce = jwt.decode(first_state, session_key, algorithms=["HS256"])[
+            "nonce"
+        ]
+        second_nonce = jwt.decode(second_state, session_key, algorithms=["HS256"])[
+            "nonce"
+        ]
 
         async def exchange(code: str):
             return {"id_token": code}

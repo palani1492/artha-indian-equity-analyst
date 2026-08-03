@@ -40,9 +40,7 @@ async def _run(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _refresh_ticker(
-    repository: ResearchRepository, raw_ticker: str
-) -> str:
+async def _refresh_ticker(repository: ResearchRepository, raw_ticker: str) -> str:
     ticker, requested_exchange = normalize_ticker(raw_ticker)
     stock = await repository.get_stock(ticker)
     exchange = stock.exchange if stock is not None else requested_exchange

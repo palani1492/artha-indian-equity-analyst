@@ -24,9 +24,10 @@ export type Persona = {
 
 export type ResearchSource = {
   id: string;
+  ticker?: string;
   publisher: string;
   title: string;
-  kind: "Fundamentals" | "News" | "Exchange filing";
+  kind: "Fundamentals" | "News" | "Exchange filing" | "Cited document";
   dateLabel: string;
   publishedAt?: string;
   url: string;
@@ -36,6 +37,7 @@ export type ResearchSource = {
 export type Citation = {
   sourceId: string;
   label: string;
+  source?: ResearchSource;
 };
 
 export type ChatMessage = {
@@ -107,6 +109,7 @@ export const DEMO_PERSONA: Persona = {
 export const DEMO_SOURCES: ResearchSource[] = [
   {
     id: "tcs-fundamentals",
+    ticker: "TCS",
     publisher: "Screener",
     title: "Tata Consultancy Services consolidated fundamentals",
     kind: "Fundamentals",
@@ -117,6 +120,7 @@ export const DEMO_SOURCES: ResearchSource[] = [
   },
   {
     id: "tcs-results",
+    ticker: "TCS",
     publisher: "TCS Investor Relations",
     title: "Quarterly earnings and investor update",
     kind: "Exchange filing",
@@ -127,6 +131,7 @@ export const DEMO_SOURCES: ResearchSource[] = [
   },
   {
     id: "tcs-news",
+    ticker: "TCS",
     publisher: "Moneycontrol",
     title: "TCS market and demand coverage",
     kind: "News",
@@ -159,9 +164,9 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
     text:
       "The fundamentals record supports TCS as a quality candidate with low balance-sheet leverage [1]. Company reporting adds operating context, while recent coverage shows that demand conditions still need monitoring [2][3]. Treat this as a research lead, not a buy instruction. I do not have a live valuation snapshot in the sample data.",
     citations: [
-      { sourceId: "tcs-fundamentals", label: "1" },
-      { sourceId: "tcs-results", label: "2" },
-      { sourceId: "tcs-news", label: "3" },
+      { sourceId: "tcs-fundamentals", label: "1", source: DEMO_SOURCES[0] },
+      { sourceId: "tcs-results", label: "2", source: DEMO_SOURCES[1] },
+      { sourceId: "tcs-news", label: "3", source: DEMO_SOURCES[2] },
     ],
     createdLabel: "Now",
   },

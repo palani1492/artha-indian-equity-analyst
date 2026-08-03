@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
-
 from app.container import build_container
 from app.domain.models import (
     DocumentKind,
@@ -16,6 +14,7 @@ from app.domain.models import (
 )
 from app.repositories.memory import InMemoryResearchRepository
 from app.settings import Settings
+from pydantic import ValidationError
 
 
 def test_ticker_normalization_accepts_nse_suffix() -> None:

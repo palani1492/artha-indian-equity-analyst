@@ -4,13 +4,13 @@ import asyncio
 import os
 
 import pytest
-
 from app.container import build_container
 from app.settings import Settings
 
 
-async def test_postgres_pgvector_ingestion_is_concurrent_idempotent_and_searchable(
-) -> None:
+async def test_postgres_pgvector_ingestion_is_concurrent_idempotent_and_searchable() -> (
+    None
+):
     database_url = os.getenv("TEST_DATABASE_URL")
     if not database_url:
         pytest.skip("TEST_DATABASE_URL is available in CI's pgvector job")

@@ -46,9 +46,7 @@ class GeminiTextClient:
         content = candidates[0].get("content")
         parts = content.get("parts") if isinstance(content, dict) else None
         text = "".join(
-            str(part.get("text", ""))
-            for part in parts or ()
-            if isinstance(part, dict)
+            str(part.get("text", "")) for part in parts or () if isinstance(part, dict)
         ).strip()
         if not text:
             raise ValueError("Gemini returned an empty response")

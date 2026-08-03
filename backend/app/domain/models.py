@@ -191,6 +191,10 @@ class Citation(BaseModel):
     document_id: str
     title: str
     url: HttpUrl
+    ticker: str | None = None
+    kind: DocumentKind | None = None
+    content: str | None = None
+    published_at: datetime | None = None
 
 
 class RankedStock(BaseModel):

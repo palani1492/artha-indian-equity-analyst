@@ -5,6 +5,7 @@ import {
   KeyboardEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -43,13 +44,18 @@ import {
 
 type ConnectionMode = "connecting" | "live" | "demo" | "error";
 type ThemePreference = "system" | "light" | "dark";
+type AnswerEvidence = {
+  citations: Citation[];
+  sources: ResearchSource[];
+  scopeLabel: string;
+};
 const AUTO_REFRESH_MS = 120_000;
 
 export function ArthaWorkspace() {
   const [stocks, setStocks] = useState<Stock[]>(DEMO_STOCKS);
   const [activeKey, setActiveKey] = useState("NSE:TCS");
   const [persona, setPersona] = useState<Persona>(DEMO_PERSONA);
-  const [sources, setSources] = useState<ResearchSource[]>(DEMO_SOURCES);
+  const [tickerSources, setTickerSources] = useState<ResearchSource[]>(DEMO_SOURCES);
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [connection, setConnection] = useState<ConnectionMode>("connecting");
   const [notice, setNotice] = useState("");
@@ -66,16 +72,26 @@ export function ArthaWorkspace() {
   const [personaDraft, setPersonaDraft] = useState<Persona>(DEMO_PERSONA);
   const [sourcesOpen, setSourcesOpen] = useState(true);
   const [expandedSource, setExpandedSource] = useState<string | null>("tcs-fundamentals");
-  const [lastCitations, setLastCitations] = useState<Citation[]>([]);
+  const [answerEvidence, setAnswerEvidence] = useState<AnswerEvidence | null>(() =>
+    initialAnswerEvidence(),
+  );
+  const [pendingEvidenceScope, setPendingEvidenceScope] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemePreference>("system");
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [clock, setClock] = useState(() => Date.now());
   const [welcomeTitle, setWelcomeTitle] = useState("Your research desk is ready.");
+  const researchRequestId = useRef(0);
 
   const activeStock = useMemo(
     () => stocks.find((stock) => `${stock.exchange}:${stock.symbol}` === activeKey) ?? stocks[0],
     [activeKey, stocks],
+  );
+  const visibleSources = pendingEvidenceScope ? [] : answerEvidence?.sources ?? tickerSources;
+  const visibleCitations = useMemo(() => answerEvidence?.citations ?? [], [answerEvidence]);
+  const citationLabels = useMemo(
+    () => new Map(visibleCitations.map((citation) => [citation.sourceId, citation.label])),
+    [visibleCitations],
   );
 
   useEffect(() => {
@@ -92,7 +108,7 @@ export function ArthaWorkspace() {
               },
         ),
       );
-      setSources((current) =>
+      setTickerSources((current) =>
         current.map((source, index) =>
           source.publishedAt
             ? source
@@ -165,9 +181,12 @@ export function ArthaWorkspace() {
         }
       }
       if (successfulRequests > 0) {
+        researchRequestId.current += 1;
         setConnection("live");
         setMessages([]);
-        setLastCitations([]);
+        setAnswerEvidence(null);
+        setPendingEvidenceScope(null);
+        setIsThinking(false);
         const initialTicker = hydratedStocks?.[0]?.symbol;
         if (initialTicker) void refreshSources(initialTicker, true);
       } else {
@@ -181,7 +200,7 @@ export function ArthaWorkspace() {
           setAuthState("guest");
           setUser(null);
           setStocks([]);
-          setSources([]);
+          setTickerSources([]);
           setMessages([]);
           setNotice("The live analyst is temporarily unavailable. Try again shortly.");
         }
@@ -270,8 +289,8 @@ export function ArthaWorkspace() {
       ]);
       const nextSources = sourceList(payload);
       if (nextSources) {
-        setSources(nextSources);
-        setExpandedSource(nextSources[0]?.id ?? null);
+        setTickerSources(nextSources);
+        setExpandedSource((current) => current ?? nextSources[0]?.id ?? null);
       }
     } catch {
       // The answer path remains authoritative; the rail can show its empty state.
@@ -281,6 +300,8 @@ export function ArthaWorkspace() {
   async function sendQuestion(input: string) {
     const cleanQuestion = input.trim();
     if (!cleanQuestion || isThinking) return;
+    const requestId = researchRequestId.current + 1;
+    researchRequestId.current = requestId;
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -289,12 +310,20 @@ export function ArthaWorkspace() {
       createdAt: new Date().toISOString(),
     };
     const nextPersona = inferPersona(cleanQuestion, persona);
+    const requestedTicker = questionTicker(cleanQuestion, activeStock?.symbol);
+    const evidenceScope = answerEvidenceScope(
+      cleanQuestion,
+      requestedTicker,
+      stocks,
+    );
     if (nextPersona !== persona) persistPersona(nextPersona);
     setMessages((current) => [...current, userMessage]);
     setQuestion("");
     setIsThinking(true);
     setNotice("");
-    setLastCitations([]);
+    setAnswerEvidence(null);
+    setPendingEvidenceScope(evidenceScope);
+    setExpandedSource(null);
 
     let answer: ChatMessage | null = null;
     if (connection !== "demo") {
@@ -303,16 +332,19 @@ export function ArthaWorkspace() {
           method: "POST",
           body: JSON.stringify({
             message: cleanQuestion,
-            ticker: questionTicker(cleanQuestion, activeStock?.symbol),
+            ticker: requestedTicker,
             persona: nextPersona,
           }),
         });
+        if (researchRequestId.current !== requestId) return;
         answer = apiAnswer(payload);
         const learnedPersona = isRecord(payload) ? personaValue(payload.persona) : null;
         if (learnedPersona) persistPersona(learnedPersona);
       } catch {
+        if (researchRequestId.current !== requestId) return;
         if (!ALLOW_DEMO_FALLBACK) {
           setNotice("The live analyst could not answer right now. No sample answer was substituted.");
+          setPendingEvidenceScope(null);
           setIsThinking(false);
           return;
         }
@@ -322,9 +354,14 @@ export function ArthaWorkspace() {
     }
     if (!answer) {
       await new Promise((resolve) => window.setTimeout(resolve, 420));
+      if (researchRequestId.current !== requestId) return;
       answer = demoAnswer(cleanQuestion, nextPersona);
     }
-    if (answer.citations?.length) setLastCitations(answer.citations);
+    const citations = answer.citations ?? [];
+    const citedSources = sourcesForCitations(citations, tickerSources);
+    setAnswerEvidence({ citations, sources: citedSources, scopeLabel: evidenceScope });
+    setPendingEvidenceScope(null);
+    setExpandedSource(citedSources[0]?.id ?? null);
     setMessages((current) => [...current, answer]);
     setIsThinking(false);
   }
@@ -339,6 +376,16 @@ export function ArthaWorkspace() {
       event.preventDefault();
       void sendQuestion(question);
     }
+  }
+
+  function resetResearchContext() {
+    researchRequestId.current += 1;
+    setMessages([]);
+    setAnswerEvidence(null);
+    setPendingEvidenceScope(null);
+    setTickerSources([]);
+    setExpandedSource(null);
+    setIsThinking(false);
   }
 
   async function handleFollow(event: FormEvent<HTMLFormElement>) {
@@ -358,8 +405,10 @@ export function ArthaWorkspace() {
     }
     if (stocks.some((stock) => stock.symbol === symbol)) {
       setActiveKey(`${selectedExchange}:${symbol}`);
+      resetResearchContext();
       setFollowTicker("");
       setFollowStatus(`${symbol} is already on your research list.`);
+      void refreshSources(symbol);
       return;
     }
 
@@ -405,6 +454,7 @@ export function ArthaWorkspace() {
       } satisfies Stock);
     setStocks((current) => [...current, nextStock]);
     setActiveKey(`${selectedExchange}:${symbol}`);
+    resetResearchContext();
     setFollowTicker("");
     await refreshSources(symbol);
     setFollowStatus(`${symbol} added. Fundamentals and news are queued.`);
@@ -413,9 +463,7 @@ export function ArthaWorkspace() {
   function handleSelectStock(stock: Stock) {
     setActiveKey(`${stock.exchange}:${stock.symbol}`);
     setPendingUnfollow(null);
-    setMessages([]);
-    setLastCitations([]);
-    setSources([]);
+    resetResearchContext();
     void refreshSources(stock.symbol);
   }
 
@@ -442,9 +490,7 @@ export function ArthaWorkspace() {
     if (activeStock?.symbol === stock.symbol && activeStock.exchange === stock.exchange) {
       setActiveKey(remaining[0] ? `${remaining[0].exchange}:${remaining[0].symbol}` : "");
     }
-    setSources([]);
-    setMessages([]);
-    setLastCitations([]);
+    resetResearchContext();
     setFollowStatus(`${stock.symbol} removed from your research list.`);
   }
 
@@ -786,22 +832,28 @@ export function ArthaWorkspace() {
             >
               <span>
                 <small>Evidence</small>
-                <strong id="sources-title">Sources used ({sources.length})</strong>
+                <strong id="sources-title">Sources used ({visibleSources.length})</strong>
               </span>
               <span aria-hidden="true">{sourcesOpen ? "Hide" : "Show"}</span>
             </button>
             {sourcesOpen ? (
               <div id="source-list" className="source-list">
                 <p className="source-explainer">
-                  Artha retrieves indexed documents for the active ticker. Citation numbers in an answer open the matching source below.
-                  {lastCitations.length ? ` Latest answer cites ${lastCitations.length} source${lastCitations.length === 1 ? "" : "s"}.` : ""}
+                  {pendingEvidenceScope
+                    ? `Retrieving evidence for ${pendingEvidenceScope.replace("Current answer / ", "")}.`
+                    : answerEvidence
+                      ? `${answerEvidence.scopeLabel}. This rail is pinned to the exact sources cited by the current answer.`
+                      : `Ticker evidence / ${activeStock?.symbol ?? "no ticker selected"}. Ask a question to pin its cited sources here.`}
                 </p>
-                {sources.length === 0 ? (
-                  <EmptyState title="No sources retrieved" body="Refresh this ticker, then ask a grounded question." />
+                {visibleSources.length === 0 ? (
+                  <EmptyState
+                    title={pendingEvidenceScope ? "Retrieving cited sources" : answerEvidence ? "No cited sources returned" : "No sources retrieved"}
+                    body={pendingEvidenceScope ? "The rail will update when the answer is ready." : answerEvidence ? "This answer did not include evidence that can be opened." : "Refresh this ticker, then ask a grounded question."}
+                  />
                 ) : (
-                  sources.map((source, index) => (
+                  visibleSources.map((source, index) => (
                     <article
-                      className={`source-item ${expandedSource === source.id ? "is-expanded" : ""} ${lastCitations.some((citation) => citation.sourceId === source.id) ? "is-cited" : ""}`}
+                      className={`source-item ${expandedSource === source.id ? "is-expanded" : ""} ${citationLabels.has(source.id) ? "is-cited" : ""}`}
                       id={`source-${source.id}`}
                       key={source.id}
                     >
@@ -811,9 +863,9 @@ export function ArthaWorkspace() {
                         onClick={() => setExpandedSource(expandedSource === source.id ? null : source.id)}
                         aria-expanded={expandedSource === source.id}
                       >
-                        <span className="source-number">[{index + 1}]</span>
+                        <span className="source-number">[{citationLabels.get(source.id) ?? index + 1}]</span>
                         <span>
-                          <small>{source.kind} / {source.publisher}</small>
+                          <small>{source.ticker ? `${source.ticker} / ` : ""}{source.kind} / {source.publisher}</small>
                           <strong>{source.title}</strong>
                         </span>
                       </button>
@@ -851,6 +903,59 @@ export function ArthaWorkspace() {
       ) : null}
     </div>
   );
+}
+
+function initialAnswerEvidence(): AnswerEvidence | null {
+  const latestAnswer = [...INITIAL_MESSAGES]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.citations?.length);
+  if (!latestAnswer?.citations) return null;
+  return {
+    citations: latestAnswer.citations,
+    sources: sourcesForCitations(latestAnswer.citations, DEMO_SOURCES),
+    scopeLabel: "Current answer / TCS",
+  };
+}
+
+function sourcesForCitations(
+  citations: Citation[],
+  indexedSources: ResearchSource[],
+): ResearchSource[] {
+  const indexedById = new Map(indexedSources.map((source) => [source.id, source]));
+  const seen = new Set<string>();
+  return citations.flatMap((citation) => {
+    if (seen.has(citation.sourceId)) return [];
+    const source = indexedById.get(citation.sourceId) ?? citation.source;
+    if (!source) return [];
+    seen.add(citation.sourceId);
+    return [{ ...source, id: citation.sourceId }];
+  });
+}
+
+function answerEvidenceScope(
+  question: string,
+  requestedTicker: string | null,
+  followedStocks: Stock[],
+): string {
+  const normalized = question.toUpperCase();
+  const mentionedTickers = followedStocks
+    .map((stock) => {
+      const positions = [
+        normalized.indexOf(stock.symbol.toUpperCase()),
+        normalized.indexOf(stock.company.toUpperCase()),
+      ].filter((position) => position >= 0);
+      return {
+        symbol: stock.symbol,
+        position: positions.length ? Math.min(...positions) : -1,
+      };
+    })
+    .filter((match) => match.position >= 0)
+    .sort((left, right) => left.position - right.position)
+    .map((match) => match.symbol);
+  const uniqueTickers = [...new Set(mentionedTickers)];
+  if (uniqueTickers.length > 0) return `Current answer / ${uniqueTickers.join(" + ")}`;
+  if (requestedTicker) return `Current answer / ${requestedTicker}`;
+  return "Current answer / followed equities";
 }
 
 function questionTicker(question: string, activeSymbol?: string): string | null {

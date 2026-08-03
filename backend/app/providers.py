@@ -309,7 +309,9 @@ class LiveIndianMarketDataProvider:
         for item in entries:
             title = self._element_text(item, {"title"})
             description = self._clean_html(
-                self._element_text(item, {"description", "summary", "content", "encoded"})
+                self._element_text(
+                    item, {"description", "summary", "content", "encoded"}
+                )
             )
             combined = " ".join(part for part in (title, description) if part).strip()
             if not combined:
@@ -351,7 +353,9 @@ class LiveIndianMarketDataProvider:
             shortened_name,
             " ".join(words[:2]) if len(words) >= 2 else shortened_name,
         }
-        return tuple(sorted((alias for alias in aliases if alias), key=len, reverse=True))
+        return tuple(
+            sorted((alias for alias in aliases if alias), key=len, reverse=True)
+        )
 
     @staticmethod
     def _normalize_company_text(value: str) -> str:

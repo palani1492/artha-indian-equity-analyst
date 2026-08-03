@@ -235,17 +235,20 @@ export function sourceList(payload: unknown): ResearchSource[] | null {
   if (!raw) return null;
   const parsed = raw.flatMap((item, index) => {
     if (!isRecord(item)) return [];
-    const sourceKind = String(item.kind ?? item.type ?? "News");
+    const sourceKind = String(item.kind ?? item.type ?? "Cited document");
     return [
       {
         id: String(item.id ?? item.source_id ?? `source-${index + 1}`),
+        ticker: typeof item.ticker === "string" ? item.ticker.toUpperCase() : undefined,
         publisher: String(item.publisher ?? item.source ?? publisherFromUrl(item.url)),
         title: String(item.title ?? "Research source"),
         kind: sourceKind.toLowerCase().includes("fund")
           ? "Fundamentals"
           : sourceKind.toLowerCase().includes("filing")
             ? "Exchange filing"
-            : "News",
+            : sourceKind.toLowerCase().includes("news")
+              ? "News"
+              : "Cited document",
         dateLabel: String(item.dateLabel ?? item.published_at ?? "Recently indexed"),
         publishedAt: typeof (item.publishedAt ?? item.published_at) === "string"
           ? String(item.publishedAt ?? item.published_at)
@@ -381,6 +384,7 @@ export function demoAnswer(question: string, persona: Persona): ChatMessage {
     citations: DEMO_SOURCES.map((source, index) => ({
       sourceId: source.id,
       label: String(index + 1),
+      source,
     })),
     createdLabel: "Now",
     createdAt: new Date().toISOString(),
@@ -395,18 +399,15 @@ export function apiAnswer(payload: unknown): ChatMessage | null {
   const citations = rawCitations.flatMap((item, index): Citation[] => {
     if (typeof item === "string") return [{ sourceId: item, label: String(index + 1) }];
     if (!isRecord(item)) return [];
-    return [
-      {
-        sourceId: String(
-          item.sourceId ??
-            item.source_id ??
-            item.document_id ??
-            item.id ??
-            `source-${index + 1}`,
-        ),
-        label: String(index + 1),
-      },
-    ];
+    const sourceId = String(
+      item.sourceId ??
+        item.source_id ??
+        item.document_id ??
+        item.id ??
+        `source-${index + 1}`,
+    );
+    const source = sourceList([{ ...item, id: sourceId }])?.[0];
+    return [{ sourceId, label: String(item.index ?? index + 1), source }];
   });
   return {
     id: crypto.randomUUID(),

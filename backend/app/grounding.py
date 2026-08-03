@@ -142,12 +142,11 @@ class GroundingGuard:
         }
         source_words = set(WORD_PATTERN.findall(cited_text.lower()))
         supported = claim_words.intersection(source_words)
-        unsupported_qualifiers = (
-            claim_words.intersection(QUALITATIVE_CLAIM_WORDS).difference(source_words)
-        )
-        qualitative_supported = (
-            not unsupported_qualifiers
-            and (not claim_words or len(supported) / len(claim_words) >= 0.5)
+        unsupported_qualifiers = claim_words.intersection(
+            QUALITATIVE_CLAIM_WORDS
+        ).difference(source_words)
+        qualitative_supported = not unsupported_qualifiers and (
+            not claim_words or len(supported) / len(claim_words) >= 0.5
         )
         return numbers_supported and qualitative_supported
 
@@ -160,4 +159,8 @@ class GroundingGuard:
             if source.sentiment < -0.15
             else "neutral"
         )
-        return f"{source.title} {source.content} {source.impact} {source.event_tag} {tone}"
+        mentioned = " ".join(source.mentioned_tickers)
+        return (
+            f"{source.ticker} {mentioned} {source.title} {source.content} "
+            f"{source.impact} {source.event_tag} {tone}"
+        )

@@ -62,4 +62,7 @@ class SafeRewriteGenerator:
 async def test_claim_preserving_generator_allows_safe_grounded_rephrasing() -> None:
     draft = "TCS trades at INR 4,125.50 [1]."
     generator = ClaimPreservingAnswerGenerator(SafeRewriteGenerator())
-    assert await generator.generate(draft, ()) == "The latest TCS quote is INR 4,125.50 [1]."
+    assert (
+        await generator.generate(draft, ())
+        == "The latest TCS quote is INR 4,125.50 [1]."
+    )

@@ -271,11 +271,17 @@ class SqlAlchemyResearchRepository:
         self, document: SourceDocument, embedding: tuple[float, ...]
     ) -> bool:
         values = document.model_dump(mode="python")
-        values.update(kind=document.kind.value, url=str(document.url), embedding=list(embedding))
-        query = select(DocumentRow).where(
-            DocumentRow.ticker == document.ticker,
-            DocumentRow.kind == document.kind.value,
-        ).order_by(DocumentRow.published_at.desc())
+        values.update(
+            kind=document.kind.value, url=str(document.url), embedding=list(embedding)
+        )
+        query = (
+            select(DocumentRow)
+            .where(
+                DocumentRow.ticker == document.ticker,
+                DocumentRow.kind == document.kind.value,
+            )
+            .order_by(DocumentRow.published_at.desc())
+        )
         async with self._sessions.begin() as session:
             rows = list((await session.scalars(query)).all())
             row = rows[0] if rows else None

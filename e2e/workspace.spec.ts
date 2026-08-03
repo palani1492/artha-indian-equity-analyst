@@ -41,6 +41,13 @@ test.describe("Artha critical research flows", () => {
     await expect(answer.getByRole("button", { name: "Open source 2" })).toBeVisible();
     await expect(answer.getByRole("button", { name: "Open source 3" })).toBeVisible();
 
+    const evidenceRail = page.locator(".sources-panel");
+    await expect(evidenceRail).toContainText("Current answer / TCS + INFY");
+    await expect(evidenceRail.getByText("Sources used (3)", { exact: true })).toBeVisible();
+    await expect(evidenceRail.locator("#source-tcs-results")).toContainText(
+      "TCS / Exchange filing / TCS Investor Relations",
+    );
+
     await answer.getByRole("button", { name: "Open source 2" }).click();
     const citedSource = page.locator("#source-tcs-results");
     await expect(citedSource).toHaveClass(/is-expanded/);
@@ -49,6 +56,30 @@ test.describe("Artha critical research flows", () => {
       "href",
       /^https:\/\/www\.tcs\.com\//,
     );
+
+    const reliance = followedTicker(page, "RELIANCE");
+    await reliance.click();
+
+    await expect(evidenceRail).toContainText("Ticker evidence / RELIANCE");
+    await expect(evidenceRail.getByText("No sources retrieved", { exact: true })).toBeVisible();
+    await expect(page.locator("#source-tcs-results")).toHaveCount(0);
+  });
+
+  test("discards a pending answer when the active ticker changes", async ({ page }) => {
+    await openDemoWorkspace(page);
+
+    const composer = page.getByRole("form", { name: "Ask Artha" });
+    await composer.getByLabel("Ask Artha about an Indian equity").fill("Compare TCS and Infosys");
+    await composer.getByRole("button", { name: "Ask Artha" }).click();
+    await expect(page.locator(".sources-panel")).toContainText("Retrieving evidence for TCS + INFY");
+
+    await followedTicker(page, "RELIANCE").click();
+    await expect(page.getByText("Research desk / RELIANCE", { exact: true })).toBeVisible();
+    await expect(page.locator(".sources-panel")).toContainText("Ticker evidence / RELIANCE");
+
+    await page.waitForTimeout(500);
+    await expect(page.locator("article.message.assistant")).toHaveCount(0);
+    await expect(page.locator("#source-tcs-results")).toHaveCount(0);
   });
 
   test("updates and persists investor memory", async ({ page }) => {

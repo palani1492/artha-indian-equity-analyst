@@ -6,7 +6,9 @@ from app.domain.models import (
     IngestionResult,
     SourceDocument,
     Stock,
+    canonical_source_url,
     normalize_ticker,
+    source_story_fingerprint,
 )
 from app.embeddings import Embedder
 from app.providers import MarketDataProvider
@@ -32,12 +34,24 @@ class IngestionService:
         async with self._repository.ticker_lock(ticker):
             provider_ticker = f"{ticker}.BO" if exchange is Exchange.BSE else ticker
             stock, raw_documents = await self._provider.fetch(provider_ticker)
-            documents = await self._tag_documents(raw_documents)
-            rolling_sentiment = self._rolling_sentiment(stock, documents)
+            previous_stock = await self._repository.get_stock(ticker)
+            existing = await self._repository.list_documents(ticker)
+            candidates, pre_skipped = self._deduplicate_candidates(
+                raw_documents, existing
+            )
+            documents = await self._tag_documents(candidates)
+            sentiment_evidence = tuple(
+                document
+                for document in (*existing, *documents)
+                if document.kind is DocumentKind.NEWS
+            )
+            rolling_sentiment = self._rolling_sentiment(
+                previous_stock or stock, sentiment_evidence
+            )
             stock = stock.model_copy(update={"sentiment": rolling_sentiment})
             await self._repository.upsert_stock(stock)
             inserted = 0
-            skipped = 0
+            skipped = pre_skipped
             for document in documents:
                 if document.kind.value == "fundamentals":
                     embedding = await self._embedder.embed(document.content)
@@ -93,3 +107,44 @@ class IngestionService:
                 )
             )
         return tuple(tagged)
+
+    @staticmethod
+    def _deduplicate_candidates(
+        candidates: tuple[SourceDocument, ...],
+        existing: tuple[SourceDocument, ...],
+    ) -> tuple[tuple[SourceDocument, ...], int]:
+        existing_hashes = {
+            document.content_hash
+            for document in existing
+            if document.kind is DocumentKind.NEWS
+        }
+        seen_urls = {
+            canonical_source_url(document.url)
+            for document in existing
+            if document.kind is DocumentKind.NEWS
+        }
+        seen_stories = {
+            source_story_fingerprint(document)
+            for document in existing
+            if document.kind is DocumentKind.NEWS
+        }
+        fresh: list[SourceDocument] = []
+        skipped = 0
+        for document in candidates:
+            if document.kind is DocumentKind.FUNDAMENTALS:
+                fresh.append(document)
+                continue
+            canonical_url = canonical_source_url(document.url)
+            story = source_story_fingerprint(document)
+            if (
+                document.content_hash in existing_hashes
+                or canonical_url in seen_urls
+                or story in seen_stories
+            ):
+                skipped += 1
+                continue
+            existing_hashes.add(document.content_hash)
+            seen_urls.add(canonical_url)
+            seen_stories.add(story)
+            fresh.append(document)
+        return tuple(fresh), skipped

@@ -189,7 +189,9 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
     async def logout(request: Request, response: Response) -> Response:
         await dependencies.auth.logout(request, response)
-        return Response(status_code=status.HTTP_204_NO_CONTENT, headers=response.headers)
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT, headers=response.headers
+        )
 
     @app.get("/api/v1/persona", response_model=InvestorPersona)
     @app.get("/api/persona", response_model=InvestorPersona)
@@ -331,7 +333,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.post("/api/v1/refresh", response_model=RefreshResponse)
     @app.post("/api/refresh", response_model=RefreshResponse)
     async def refresh_followed(
-        user_id: Annotated[str, Depends(_user_id)]
+        user_id: Annotated[str, Depends(_user_id)],
     ) -> RefreshResponse:
         await dependencies.limiter.check(
             "refresh", user_id, dependencies.settings.rate_limit_mutation_requests

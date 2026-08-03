@@ -136,7 +136,9 @@ class InMemoryResearchRepository:
                 self._hashes = {*self._hashes, key}
                 self._documents = {
                     **self._documents,
-                    document.id: _StoredDocument(document=document, embedding=embedding),
+                    document.id: _StoredDocument(
+                        document=document, embedding=embedding
+                    ),
                 }
                 return True
             stale_ids = set(matching_ids[1:])
