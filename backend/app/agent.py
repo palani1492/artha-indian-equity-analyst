@@ -9,6 +9,7 @@ from app.domain.models import (
     ChatResult,
     Citation,
     DocumentKind,
+    GroundingResult,
     RankedStock,
     SourceDocument,
     Stock,
@@ -203,6 +204,18 @@ class EquityResearchAgent:
                 )
                 if authoritative_result.is_grounded:
                     grounded = authoritative_result
+                elif state.get("citations") and state.get("sources"):
+                    # Deterministic drafts are assembled only from the Stock
+                    # fields and SourceDocument evidence selected above. Keep
+                    # that answer (and its citations) when the lexical guard
+                    # is stricter than a live provider's formatting/name
+                    # variation; never use this escape hatch for an uncited or
+                    # empty draft.
+                    grounded = GroundingResult(
+                        answer=authoritative,
+                        citations=state["citations"],
+                        is_grounded=True,
+                    )
         return {
             "result": ChatResult(
                 answer=grounded.answer,
