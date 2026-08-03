@@ -32,6 +32,10 @@ for evaluation. `MARKET_DATA_PROVIDER=live` enables yfinance quotes/fundamentals
 plus rate-limited configured RSS feeds. The UI labels sample versus live state so
 fixture data is never presented as a live market feed.
 
+The Terraform production stack explicitly sets `MARKET_DATA_PROVIDER=live`, so
+the deployed application retrieves live quote/fundamental data and configured RSS
+coverage. The deterministic provider remains available for local tests and demos.
+
 ## Architecture
 
 ```mermaid

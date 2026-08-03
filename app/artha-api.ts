@@ -9,6 +9,8 @@ import {
 } from "./artha-data";
 
 export const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+export const ALLOW_DEMO_FALLBACK =
+  process.env.NEXT_PUBLIC_ALLOW_DEMO_FALLBACK !== "false";
 const INR_FORMATTER = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",

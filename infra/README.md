@@ -122,6 +122,10 @@ Important production variables:
 | `oauth_callback_rate_limit` | `100` | Per-IP OAuth callback limit in each five-minute WAF window |
 | `backend_environment` | `{}` | Extra non-secret backend environment settings |
 
+The production locals set `MARKET_DATA_PROVIDER=live` and `AI_PROVIDER=local`.
+Live mode uses yfinance for quotes/fundamentals and the configured, rate-limited
+RSS feeds for news; the deterministic provider is reserved for local evaluation.
+
 Never put secret values in `backend_environment` or `.tfvars`; use the existing
 Secrets Manager workflow. Keep AWS budgets/alerts enabled because ALB, WAF,
 Fargate, RDS, public IPv4 addresses, NAT (when enabled), and data transfer are

@@ -93,6 +93,15 @@
   box-shadow: inset 0 0 0 1px var(--ink-soft);
 }
 
+.connection-badge.error {
+  border-color: color-mix(in srgb, var(--negative) 35%, var(--line));
+  color: var(--negative);
+}
+
+.connection-badge.error > span {
+  background: var(--negative);
+}
+
 .theme-button {
   padding: 7px 9px;
 }

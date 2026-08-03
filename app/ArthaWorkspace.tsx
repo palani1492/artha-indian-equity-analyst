@@ -20,6 +20,7 @@ import {
 } from "./artha-data";
 import {
   API_ORIGIN,
+  ALLOW_DEMO_FALLBACK,
   apiAnswer,
   authUser,
   demoAnswer,
@@ -39,7 +40,7 @@ import {
   type AuthUser,
 } from "./artha-api";
 
-type ConnectionMode = "connecting" | "live" | "demo";
+type ConnectionMode = "connecting" | "live" | "demo" | "error";
 type ThemePreference = "system" | "light" | "dark";
 
 export function ArthaWorkspace() {
@@ -159,16 +160,34 @@ export function ArthaWorkspace() {
       }
       if (successfulRequests > 0) {
         setConnection("live");
+        setMessages([]);
       } else {
-        setConnection("demo");
-        setAuthState("demo");
-        setUser({ name: "Sample profile", email: "", initials: "SP" });
-        setNotice("Live API unavailable. Showing the deterministic sample dataset.");
+        if (ALLOW_DEMO_FALLBACK) {
+          setConnection("demo");
+          setAuthState("demo");
+          setUser({ name: "Sample profile", email: "", initials: "SP" });
+          setNotice("Live API unavailable. Showing the deterministic sample dataset.");
+        } else {
+          setConnection("error");
+          setAuthState("guest");
+          setUser(null);
+          setStocks([]);
+          setSources([]);
+          setMessages([]);
+          setNotice("The live analyst is temporarily unavailable. Try again shortly.");
+        }
       }
       if (authResult.status === "fulfilled") {
         const nextUser = authUser(authResult.value);
         setUser(nextUser);
         setAuthState(nextUser ? "authenticated" : "guest");
+        const rawPersona = personaResult.status === "fulfilled" ? personaResult.value : null;
+        const personaVersion = isRecord(rawPersona) ? Number(rawPersona.version ?? 1) : 1;
+        const hasLocalPersona = Boolean(window.localStorage.getItem("artha-persona"));
+        if (nextUser && personaVersion <= 1 && !hasLocalPersona) {
+          setPersonaOpen(true);
+          setNotice("Start by setting the investor memory Artha should use for your research.");
+        }
       } else if (successfulRequests > 0) {
         setAuthState("guest");
       }
@@ -218,6 +237,11 @@ export function ArthaWorkspace() {
         const learnedPersona = isRecord(payload) ? personaValue(payload.persona) : null;
         if (learnedPersona) persistPersona(learnedPersona);
       } catch {
+        if (!ALLOW_DEMO_FALLBACK) {
+          setNotice("The live analyst could not answer right now. No sample answer was substituted.");
+          setIsThinking(false);
+          return;
+        }
         setConnection("demo");
         setNotice("The live analyst did not respond. A deterministic sample answer is shown.");
       }
@@ -282,6 +306,10 @@ export function ArthaWorkspace() {
         const candidate = isRecord(payload) && isRecord(payload.stock) ? payload.stock : payload;
         addedStock = stockList([candidate])?.[0] ?? null;
       } catch {
+        if (!ALLOW_DEMO_FALLBACK) {
+          setFollowStatus("Live ingestion is unavailable. The ticker was not added.");
+          return;
+        }
         setConnection("demo");
         setNotice("Follow was saved in this demo session. The live API was unavailable.");
       }
@@ -327,6 +355,11 @@ export function ArthaWorkspace() {
           }),
         });
       } catch {
+        if (!ALLOW_DEMO_FALLBACK) {
+          setNotice("Live refresh is unavailable. No sample data was substituted.");
+          setIngesting(false);
+          return;
+        }
         setConnection("demo");
         setNotice("Refresh completed as a demo. No live source records were changed.");
       }
@@ -352,8 +385,12 @@ export function ArthaWorkspace() {
       try {
         await requestPersonaUpdate(personaDraft);
       } catch {
-        setConnection("demo");
-        setNotice("Memory is saved locally. Live profile sync was unavailable.");
+        if (ALLOW_DEMO_FALLBACK) {
+          setConnection("demo");
+          setNotice("Memory is saved locally. Live profile sync was unavailable.");
+        } else {
+          setNotice("Memory was saved on this device, but the live profile could not be updated.");
+        }
       }
     }
   }
@@ -447,7 +484,7 @@ export function ArthaWorkspace() {
           </form>
 
           {stocks.length === 0 ? (
-            <EmptyState title="No equities followed" body="Add an NSE or BSE ticker to begin research." />
+            <EmptyState title="No equities followed" body="Add an NSE or BSE ticker to begin live research." />
           ) : (
             <div className="stock-list" aria-label="Followed equities">
               {stocks.map((stock) => (
@@ -672,7 +709,13 @@ function ConnectionBadge({ mode }: { mode: ConnectionMode }) {
   return (
     <span className={`connection-badge ${mode}`} aria-live="polite">
       <span aria-hidden="true" />
-      {mode === "live" ? "Live data" : mode === "demo" ? "Sample data" : "Connecting"}
+      {mode === "live"
+        ? "Live data"
+        : mode === "demo"
+          ? "Sample data"
+          : mode === "error"
+            ? "Unavailable"
+            : "Connecting"}
     </span>
   );
 }

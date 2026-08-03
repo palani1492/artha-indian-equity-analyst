@@ -127,7 +127,9 @@ jobs:
           provenance: false
           sbom: false
           push: true
-          build-args: NEXT_PUBLIC_API_URL=
+          build-args: |
+            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_ALLOW_DEMO_FALLBACK=false
           tags: |
             ${{ steps.repositories.outputs.frontend }}:${{ github.sha }}
             ${{ steps.repositories.outputs.frontend }}:latest
