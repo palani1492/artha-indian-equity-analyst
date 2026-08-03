@@ -4,6 +4,10 @@ aws_region        = "ap-south-1"
 github_repository = "your-github-user/your-repository"
 github_environment = "production"
 
+# GitHub immutable OIDC subjects include owner/repository IDs. Leave null for
+# name-based subjects, or set the exact subject shown in CloudTrail when enabled.
+# github_oidc_subject = "repo:owner@OWNER_ID/repository@REPOSITORY_ID:environment:production"
+
 # If the AWS account already has the GitHub Actions provider:
 # create_github_oidc_provider       = false
 # existing_github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"

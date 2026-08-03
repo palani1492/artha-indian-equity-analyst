@@ -16,6 +16,7 @@ locals {
   name              = "${var.project_name}-${var.environment}"
   state_bucket_name = coalesce(var.state_bucket_name, "${local.name}-tfstate-${data.aws_caller_identity.current.account_id}")
   oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : var.existing_github_oidc_provider_arn
+  oidc_subject      = coalesce(var.github_oidc_subject, "repo:${var.github_repository}:environment:${var.github_environment}")
 }
 
 resource "aws_s3_bucket" "terraform_state" {
@@ -97,7 +98,7 @@ data "aws_iam_policy_document" "github_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:${var.github_environment}"]
+      values   = [local.oidc_subject]
     }
   }
 }

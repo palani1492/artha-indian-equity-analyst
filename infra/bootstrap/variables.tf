@@ -29,6 +29,13 @@ variable "github_environment" {
   default     = "production"
 }
 
+variable "github_oidc_subject" {
+  description = "Optional exact GitHub OIDC subject. GitHub immutable subjects include owner and repository IDs; set this when enabled."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "state_bucket_name" {
   description = "Optional globally unique S3 bucket name. A deterministic account-qualified name is used when omitted."
   type        = string
