@@ -103,7 +103,7 @@ variable "database_max_allocated_storage" {
 
 variable "database_backup_retention_days" {
   type    = number
-  default = 7
+  default = 1
 }
 
 variable "database_deletion_protection" {
