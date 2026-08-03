@@ -124,6 +124,8 @@ jobs:
           context: .
           file: Dockerfile.frontend
           platforms: linux/amd64
+          provenance: false
+          sbom: false
           push: true
           build-args: NEXT_PUBLIC_API_URL=
           tags: |
@@ -138,6 +140,8 @@ jobs:
           context: backend
           file: backend/Dockerfile
           platforms: linux/amd64
+          provenance: false
+          sbom: false
           push: true
           tags: |
             ${{ steps.repositories.outputs.backend }}:${{ github.sha }}
