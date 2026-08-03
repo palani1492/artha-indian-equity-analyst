@@ -98,7 +98,7 @@ resource "aws_ecs_task_definition" "backend" {
   }
 
   volume {
-    name                 = "backend-tmp"
+    name                = "backend-tmp"
     configure_at_launch = false
   }
 
