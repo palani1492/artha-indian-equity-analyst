@@ -175,9 +175,9 @@ test("keeps research prompts contextual and removes a followed equity", async ({
   await routeBackendContract(page, capture);
   await page.goto("/");
 
-  await expect(page.getByRole("button", { name: "Summarise the latest evidence for TCS" })).toBeVisible();
   await expect(page.getByRole("button", { name: "What changed this week for TCS?" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Find a fit for my profile" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Give me a cited risk summary for TCS." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "What kind of investor am I?" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Compare TCS and Infosys" })).toHaveCount(0);
   await expect(page.locator(".quick-prompts")).toHaveCount(0);
 
