@@ -169,6 +169,6 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
 
 export const QUICK_PROMPTS = [
   "Compare TCS and Infosys",
-  "What changed this week?",
-  "Find a fit for my profile",
+  "What changed recently for this company?",
+  "Which followed company best fits my profile?",
 ];

@@ -86,6 +86,65 @@
   padding: 34px 30px 24px;
 }
 
+.research-starter {
+  width: min(100%, 600px);
+  margin: 28px auto 0;
+  padding: 22px 22px 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-subtle);
+}
+
+.starter-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 15px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #f7fbf8;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.research-starter h3 {
+  margin: 4px 0 7px;
+  font-size: 18px;
+  letter-spacing: -0.025em;
+}
+
+.research-starter > p:not(.eyebrow) {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.starter-prompts {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.starter-prompts button {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.starter-prompts button:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
 .message {
   max-width: 660px;
 }

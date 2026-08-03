@@ -82,6 +82,10 @@ class EquityResearchAgent:
                 "what should i buy",
                 "picks",
                 "ideas for my profile",
+                "best fits my profile",
+                "best fit for my profile",
+                "which followed",
+                "compare",
             )
         )
         return {"persona_updated": changed, "is_recommendation": recommendation}
@@ -187,36 +191,48 @@ class EquityResearchAgent:
         recommendations: tuple[RankedStock, ...],
         sources: tuple[SourceDocument, ...],
     ) -> tuple[str, tuple[Citation, ...]]:
-        source_by_ticker = {source.ticker: source for source in sources}
-        selected = tuple(
-            source_by_ticker[item.stock.ticker]
-            for item in recommendations
-            if item.stock.ticker in source_by_ticker
-        )
-        citations = self._citations(selected)
-        index_by_ticker = {
-            source.ticker: index for index, source in enumerate(selected, 1)
-        }
+        selected: list[SourceDocument] = []
+        fundamentals_by_ticker: dict[str, SourceDocument] = {}
+        news_by_ticker: dict[str, SourceDocument] = {}
+        for item in recommendations:
+            ticker_sources = [source for source in sources if source.ticker == item.stock.ticker]
+            fundamentals = next(
+                (source for source in ticker_sources if source.kind is DocumentKind.FUNDAMENTALS),
+                None,
+            )
+            news = next(
+                (source for source in ticker_sources if source.kind is DocumentKind.NEWS),
+                None,
+            )
+            if fundamentals:
+                fundamentals_by_ticker[item.stock.ticker] = fundamentals
+                selected.append(fundamentals)
+            if news:
+                news_by_ticker[item.stock.ticker] = news
+                selected.append(news)
+        citations = self._citations(tuple(selected))
+        index_by_source = {source.id: index for index, source in enumerate(selected, 1)}
         sentences: list[str] = []
         for item in recommendations:
             stock = item.stock
-            index = index_by_ticker.get(stock.ticker)
-            if index is None:
+            fundamentals = fundamentals_by_ticker.get(stock.ticker)
+            if fundamentals is None:
                 continue
-            debt = (
-                f", debt-to-equity {stock.debt_to_equity}"
-                if stock.debt_to_equity is not None
-                else ""
-            )
-            dividend = (
-                f", and dividend yield {stock.dividend_yield}%"
-                if stock.dividend_yield is not None
-                else ""
-            )
-            reasons = ", ".join(item.reasons)
-            sentences.append(
-                f"{stock.name} trades at INR {stock.price_inr}{debt}{dividend}; it fits on {reasons} [{index}]."
-            )
+            fundamentals_index = index_by_source[fundamentals.id]
+            metrics = [
+                f"price is INR {stock.price_inr}",
+                f"P/E ratio is {stock.pe_ratio}" if stock.pe_ratio is not None else "",
+                f"debt-to-equity is {stock.debt_to_equity}" if stock.debt_to_equity is not None else "",
+                f"return on equity is {stock.roe}%" if stock.roe is not None else "",
+                f"revenue growth is {stock.revenue_growth}%" if stock.revenue_growth is not None else "",
+            ]
+            sentence = f"{stock.name}: {', '.join(metric for metric in metrics if metric)} [{fundamentals_index}]."
+            news = news_by_ticker.get(stock.ticker)
+            if news:
+                news_index = index_by_source[news.id]
+                tone = "positive" if news.sentiment > 0.15 else "negative" if news.sentiment < -0.15 else "neutral"
+                sentence += f" Recent reporting on {stock.name} is {tone} [{news_index}]."
+            sentences.append(sentence)
         return " ".join(sentences) or GroundingGuard.FALLBACK, citations
 
     async def _fundamentals_for(
@@ -225,7 +241,7 @@ class EquityResearchAgent:
         documents: list[SourceDocument] = []
         for ticker in tickers:
             ticker_documents = await self._repository.list_documents(ticker)
-            source = next(
+            fundamentals = next(
                 (
                     item
                     for item in ticker_documents
@@ -233,8 +249,14 @@ class EquityResearchAgent:
                 ),
                 None,
             )
-            if source:
-                documents.append(source)
+            news = next(
+                (item for item in ticker_documents if item.kind is DocumentKind.NEWS),
+                None,
+            )
+            if fundamentals:
+                documents.append(fundamentals)
+            if news:
+                documents.append(news)
         return tuple(documents)
 
     @staticmethod

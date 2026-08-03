@@ -223,12 +223,26 @@
   display: grid;
 }
 
+.source-explainer {
+  margin: 0;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--ink-faint);
+  font-size: 9.5px;
+  line-height: 1.55;
+}
+
 .source-item {
   border-bottom: 1px solid var(--line);
 }
 
 .source-item.is-expanded {
   background: var(--surface-subtle);
+}
+
+.source-item.is-cited {
+  box-shadow: inset 2px 0 var(--accent);
 }
 
 .source-summary {

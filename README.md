@@ -26,6 +26,12 @@ runs migrations, rolls out ECS services, and smoke-tests the public application.
 - Request personalized ideas ranked with testable algorithms before generation.
 - Receive a safe “I don't have that in the ingested data” response when the
   retrieved evidence cannot support a claim.
+- New authenticated users get a six-step first-research tutorial, clickable
+  question starters, and an investor-memory handoff before they begin.
+- Broad questions such as “compare” and “which followed company fits me?” are
+  routed across the followed universe; ticker-specific questions stay scoped to
+  the active company. The evidence rail refreshes after every follow/ingest and
+  highlights sources cited by the latest answer.
 
 The default `demo` data provider is deterministic, free, and network-independent
 for evaluation. `MARKET_DATA_PROVIDER=live` enables yfinance quotes/fundamentals
@@ -64,6 +70,13 @@ from work that does not:
    untrusted data.
 5. Run the grounding guard; unsupported numeric or qualitative claims become a
    safe fallback instead of reaching the user.
+
+The deployed default remains deterministic and grounded (`AI_PROVIDER=local`),
+so the challenge demo never depends on a paid model or invents a response when
+an LLM is unavailable. The backend already supports an optional OpenAI prose
+pass via `OPENAI_API_KEY`; a free Gemini API key can be added as a separate
+provider later, but its quota and model availability are account-dependent and
+should be treated as a demo enhancement rather than a reliability dependency.
 
 Ingestion uses normalized URLs, content hashes, a unique database constraint,
 cached embeddings, and a per-ticker PostgreSQL advisory lock. Manual and

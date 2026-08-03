@@ -14,6 +14,7 @@ import {
   INITIAL_MESSAGES,
   QUICK_PROMPTS,
   type ChatMessage,
+  type Citation,
   type Persona,
   type ResearchSource,
   type Stock,
@@ -58,9 +59,12 @@ export function ArthaWorkspace() {
   const [followStatus, setFollowStatus] = useState("");
   const [ingesting, setIngesting] = useState(false);
   const [personaOpen, setPersonaOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [openMemoryAfterTutorial, setOpenMemoryAfterTutorial] = useState(false);
   const [personaDraft, setPersonaDraft] = useState<Persona>(DEMO_PERSONA);
   const [sourcesOpen, setSourcesOpen] = useState(true);
   const [expandedSource, setExpandedSource] = useState<string | null>("tcs-fundamentals");
+  const [lastCitations, setLastCitations] = useState<Citation[]>([]);
   const [theme, setTheme] = useState<ThemePreference>("system");
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -161,6 +165,7 @@ export function ArthaWorkspace() {
       if (successfulRequests > 0) {
         setConnection("live");
         setMessages([]);
+        setLastCitations([]);
       } else {
         if (ALLOW_DEMO_FALLBACK) {
           setConnection("demo");
@@ -184,9 +189,17 @@ export function ArthaWorkspace() {
         const rawPersona = personaResult.status === "fulfilled" ? personaResult.value : null;
         const personaVersion = isRecord(rawPersona) ? Number(rawPersona.version ?? 1) : 1;
         const hasLocalPersona = Boolean(window.localStorage.getItem("artha-persona"));
-        if (nextUser && personaVersion <= 1 && !hasLocalPersona) {
-          setPersonaOpen(true);
-          setNotice("Start by setting the investor memory Artha should use for your research.");
+        if (nextUser) {
+          const firstVisit = !window.localStorage.getItem("artha-tutorial-seen");
+          const needsOnboarding = personaVersion <= 1 && !hasLocalPersona;
+          if (firstVisit && needsOnboarding) setTutorialOpen(true);
+          if (needsOnboarding) {
+            setOpenMemoryAfterTutorial(true);
+            if (!firstVisit) {
+              setPersonaOpen(true);
+              setNotice("Start by setting the investor memory Artha should use for your research.");
+            }
+          }
         }
       } else if (successfulRequests > 0) {
         setAuthState("guest");
@@ -205,6 +218,24 @@ export function ArthaWorkspace() {
     window.localStorage.setItem("artha-persona", JSON.stringify(nextPersona));
   }
 
+  async function refreshSources(ticker?: string) {
+    if (connection !== "live") return;
+    const query = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+    try {
+      const payload = await requestFirst([
+        `/api/v1/sources${query}`,
+        `/api/sources${query}`,
+      ]);
+      const nextSources = sourceList(payload);
+      if (nextSources) {
+        setSources(nextSources);
+        setExpandedSource(nextSources[0]?.id ?? null);
+      }
+    } catch {
+      // The answer path remains authoritative; the rail can show its empty state.
+    }
+  }
+
   async function sendQuestion(input: string) {
     const cleanQuestion = input.trim();
     if (!cleanQuestion || isThinking) return;
@@ -221,6 +252,7 @@ export function ArthaWorkspace() {
     setQuestion("");
     setIsThinking(true);
     setNotice("");
+    setLastCitations([]);
 
     let answer: ChatMessage | null = null;
     if (connection !== "demo") {
@@ -229,7 +261,7 @@ export function ArthaWorkspace() {
           method: "POST",
           body: JSON.stringify({
             message: cleanQuestion,
-            ticker: activeStock?.symbol ?? null,
+            ticker: questionTicker(cleanQuestion, activeStock?.symbol),
             persona: nextPersona,
           }),
         });
@@ -250,6 +282,7 @@ export function ArthaWorkspace() {
       await new Promise((resolve) => window.setTimeout(resolve, 420));
       answer = demoAnswer(cleanQuestion, nextPersona);
     }
+    if (answer.citations?.length) setLastCitations(answer.citations);
     setMessages((current) => [...current, answer]);
     setIsThinking(false);
   }
@@ -331,6 +364,7 @@ export function ArthaWorkspace() {
     setStocks((current) => [...current, nextStock]);
     setActiveSymbol(symbol);
     setFollowTicker("");
+    await refreshSources(symbol);
     setFollowStatus(`${symbol} added. Fundamentals and news are queued.`);
   }
 
@@ -354,6 +388,7 @@ export function ArthaWorkspace() {
             exchange: activeStock.exchange,
           }),
         });
+        await refreshSources(activeStock.symbol);
       } catch {
         if (!ALLOW_DEMO_FALLBACK) {
           setNotice("Live refresh is unavailable. No sample data was substituted.");
@@ -551,7 +586,10 @@ export function ArthaWorkspace() {
 
           <div className="message-thread" aria-live="polite" aria-busy={isThinking}>
             {messages.length === 0 ? (
-              <EmptyState title="Start a research thread" body="Ask about a followed company, recent sentiment, or fit with your memory." />
+              <ResearchStarter
+                symbol={activeStock?.symbol}
+                onAsk={(prompt) => void sendQuestion(prompt)}
+              />
             ) : (
               messages.map((message) => (
                 <article className={`message ${message.role}`} key={message.id}>
@@ -655,18 +693,22 @@ export function ArthaWorkspace() {
             >
               <span>
                 <small>Evidence</small>
-                <strong id="sources-title">Sources used</strong>
+                <strong id="sources-title">Sources used ({sources.length})</strong>
               </span>
               <span aria-hidden="true">{sourcesOpen ? "Hide" : "Show"}</span>
             </button>
             {sourcesOpen ? (
               <div id="source-list" className="source-list">
+                <p className="source-explainer">
+                  Artha retrieves indexed documents for the active ticker. Citation numbers in an answer open the matching source below.
+                  {lastCitations.length ? ` Latest answer cites ${lastCitations.length} source${lastCitations.length === 1 ? "" : "s"}.` : ""}
+                </p>
                 {sources.length === 0 ? (
                   <EmptyState title="No sources retrieved" body="Refresh this ticker, then ask a grounded question." />
                 ) : (
                   sources.map((source, index) => (
                     <article
-                      className={`source-item ${expandedSource === source.id ? "is-expanded" : ""}`}
+                      className={`source-item ${expandedSource === source.id ? "is-expanded" : ""} ${lastCitations.some((citation) => citation.sourceId === source.id) ? "is-cited" : ""}`}
                       id={`source-${source.id}`}
                       key={source.id}
                     >
@@ -701,8 +743,36 @@ export function ArthaWorkspace() {
           </section>
         </aside>
       </main>
+      {tutorialOpen ? (
+        <OnboardingDialog
+          onClose={() => {
+            window.localStorage.setItem("artha-tutorial-seen", "1");
+            setTutorialOpen(false);
+            if (openMemoryAfterTutorial) {
+              setPersonaOpen(true);
+              setOpenMemoryAfterTutorial(false);
+              setNotice("Start by setting the investor memory Artha should use for your research.");
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+function questionTicker(question: string, activeSymbol?: string): string | null {
+  const normalized = question.toLowerCase();
+  const broadResearch = [
+    "compare",
+    "which followed",
+    "best fit",
+    "best fits",
+    "recommend",
+    "shortlist",
+    "my profile",
+    "all my",
+  ].some((phrase) => normalized.includes(phrase));
+  return broadResearch ? null : activeSymbol ?? null;
 }
 
 function ConnectionBadge({ mode }: { mode: ConnectionMode }) {
@@ -913,6 +983,83 @@ function EmptyState({ title, body }: { title: string; body: string }) {
     <div className="empty-state">
       <strong>{title}</strong>
       <p>{body}</p>
+    </div>
+  );
+}
+
+function ResearchStarter({
+  symbol,
+  onAsk,
+}: {
+  symbol?: string;
+  onAsk: (prompt: string) => void;
+}) {
+  const prompts = [
+    QUICK_PROMPTS[0],
+    symbol
+      ? `Summarise the latest evidence for ${symbol} and cite every claim.`
+      : "Summarise the latest evidence and cite every claim.",
+    QUICK_PROMPTS[2],
+  ];
+  return (
+    <div className="research-starter">
+      <div className="starter-mark" aria-hidden="true">A</div>
+      <p className="eyebrow">First research question</p>
+      <h3>Start a research thread</h3>
+      <p>
+        Ask a specific question. Artha retrieves indexed fundamentals and news for your followed companies, then links every supported claim to a source.
+      </p>
+      <div className="starter-prompts" aria-label="Research question examples">
+        {prompts.map((prompt) => (
+          <button type="button" key={prompt} onClick={() => onAsk(prompt)}>{prompt}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OnboardingDialog({ onClose }: { onClose: () => void }) {
+  const steps = [
+    ["Set your memory", "Choose your risk, time horizon, and what evidence matters to you."],
+    ["Follow a company", "Add an NSE or BSE ticker such as TCS, INFY, or RELIANCE."],
+    ["Refresh the evidence", "Refresh the ticker to ingest current fundamentals and recent Indian market news."],
+    ["Ask a focused question", "Use the starters or ask about valuation, risks, results, sentiment, or profile fit."],
+    ["Open the citations", "The [1], [2], and [3] markers in an answer open the exact retrieved source."],
+    ["Compare before acting", "Use Artha as a research aid, verify the linked source, and never treat it as a buy order."],
+  ] as const;
+  const [step, setStep] = useState(0);
+  const isLast = step === steps.length - 1;
+  return (
+    <div className="onboarding-backdrop" role="presentation">
+      <section className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+        <div className="onboarding-header">
+          <div>
+            <p className="eyebrow">Quick start / {step + 1} of {steps.length}</p>
+            <h2 id="onboarding-title">Your first research loop</h2>
+          </div>
+          <button className="text-button" type="button" onClick={onClose}>Skip</button>
+        </div>
+        <ol className="onboarding-steps">
+          {steps.map(([title], index) => (
+            <li className={index === step ? "is-current" : index < step ? "is-complete" : ""} key={title}>
+              <button type="button" aria-label={`Go to step ${index + 1}: ${title}`} onClick={() => setStep(index)}>{index + 1}</button>
+            </li>
+          ))}
+        </ol>
+        <div className="onboarding-copy">
+          <span className="onboarding-number">0{step + 1}</span>
+          <h3>{steps[step][0]}</h3>
+          <p>{steps[step][1]}</p>
+        </div>
+        <div className="onboarding-actions">
+          <button className="text-button" type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0}>Back</button>
+          {isLast ? (
+            <button className="primary-button" type="button" onClick={onClose}>Open my desk</button>
+          ) : (
+            <button className="primary-button" type="button" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))}>Next step</button>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
