@@ -96,6 +96,7 @@ class EquityResearchAgent:
                 "ideas for my profile",
                 "best fits my profile",
                 "best fit for my profile",
+                "find a fit for my profile",
                 "which followed",
             )
         )

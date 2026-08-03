@@ -190,6 +190,28 @@ def test_plain_language_profile_question_returns_followed_recommendations(
     assert body["citations"]
 
 
+def test_starter_profile_question_returns_followed_recommendations(
+    client, auth_headers
+) -> None:
+    for ticker in ("TCS", "INFY"):
+        assert (
+            client.post(
+                f"/api/v1/stocks/{ticker}/follow", headers=auth_headers
+            ).status_code
+            == 201
+        )
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={"message": "Find a fit for my profile"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recommendations"]
+    assert body["citations"]
+
+
 def test_persona_patch_validates_and_updates_fields(client, auth_headers) -> None:
     response = client.patch(
         "/api/v1/persona",
