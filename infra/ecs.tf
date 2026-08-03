@@ -29,6 +29,7 @@ resource "aws_ecs_cluster_capacity_providers" "application" {
 
 resource "aws_ecs_task_definition" "frontend" {
   family                   = "${local.name}-frontend"
+  tags                     = local.common_tags
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = var.frontend_cpu
@@ -85,6 +86,7 @@ resource "aws_ecs_task_definition" "frontend" {
 
 resource "aws_ecs_task_definition" "backend" {
   family                   = "${local.name}-backend"
+  tags                     = local.common_tags
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = var.backend_cpu

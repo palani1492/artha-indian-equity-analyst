@@ -449,7 +449,6 @@ data "aws_iam_policy_document" "github_deploy" {
       "ecr:UploadLayerPart",
       "ecs:DeleteCluster",
       "ecs:DeleteService",
-      "ecs:DeregisterTaskDefinition",
       "ecs:PutClusterCapacityProviders",
       "ecs:RunTask",
       "ecs:TagResource",
