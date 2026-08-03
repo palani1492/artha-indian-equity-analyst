@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
 import jwt
+from fastapi.testclient import TestClient
+
 from app.api import create_app
 from app.container import build_container
 from app.settings import Settings
-from fastapi.testclient import TestClient
 
 
 def test_health_is_public(client) -> None:
