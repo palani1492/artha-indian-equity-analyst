@@ -90,3 +90,14 @@ def test_guard_rejects_unsupported_qualitative_claim_beside_a_sourced_number() -
         (doc,),
     )
     assert result.is_grounded is False
+
+
+def test_guard_rejects_gemini_qualifier_added_to_sourced_price_claim() -> None:
+    doc = source()
+    citation = Citation(index=1, document_id=doc.id, title=doc.title, url=doc.url)
+    result = GroundingGuard().validate(
+        "TCS price is attractive at INR 4,125.50 [1].",
+        (citation,),
+        (doc,),
+    )
+    assert result.is_grounded is False

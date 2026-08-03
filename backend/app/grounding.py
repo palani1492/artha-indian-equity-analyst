@@ -23,6 +23,27 @@ NON_CLAIM_WORDS = {
     "tone",
     "with",
 }
+QUALITATIVE_CLAIM_WORDS = {
+    "accumulate",
+    "attractive",
+    "avoid",
+    "buy",
+    "cheap",
+    "compelling",
+    "conviction",
+    "expensive",
+    "improved",
+    "materially",
+    "outperform",
+    "overvalued",
+    "quality",
+    "recommend",
+    "resilient",
+    "sell",
+    "strong",
+    "undervalued",
+    "weak",
+}
 
 
 class GroundingGuard:
@@ -97,7 +118,9 @@ class GroundingGuard:
     ) -> bool:
         numeric_claims = NUMBER_PATTERN.findall(CITATION_PATTERN.sub("", sentence))
         cited_text = " ".join(
-            source_map[citation_map[index].document_id].content
+            GroundingGuard._source_evidence_text(
+                source_map[citation_map[index].document_id]
+            )
             for index in indexes
             if index in citation_map and citation_map[index].document_id in source_map
         )
@@ -119,7 +142,22 @@ class GroundingGuard:
         }
         source_words = set(WORD_PATTERN.findall(cited_text.lower()))
         supported = claim_words.intersection(source_words)
+        unsupported_qualifiers = (
+            claim_words.intersection(QUALITATIVE_CLAIM_WORDS).difference(source_words)
+        )
         qualitative_supported = (
-            not claim_words or len(supported) / len(claim_words) >= 0.5
+            not unsupported_qualifiers
+            and (not claim_words or len(supported) / len(claim_words) >= 0.5)
         )
         return numbers_supported and qualitative_supported
+
+    @staticmethod
+    def _source_evidence_text(source: SourceDocument) -> str:
+        tone = (
+            "positive"
+            if source.sentiment > 0.15
+            else "negative"
+            if source.sentiment < -0.15
+            else "neutral"
+        )
+        return f"{source.title} {source.content} {source.impact} {source.event_tag} {tone}"
