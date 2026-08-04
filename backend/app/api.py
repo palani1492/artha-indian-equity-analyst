@@ -26,6 +26,7 @@ from app.domain.models import (
     ChatResult,
     Citation,
     ConversationMessage,
+    GraphFact,
     IngestionResult,
     InvestorPersona,
     ResearchConversation,
@@ -556,6 +557,19 @@ def create_app(container: Container | None = None) -> FastAPI:
         normalized = normalize_ticker(ticker)[0] if ticker else None
         await dependencies.repository.deduplicate_documents(normalized)
         return await dependencies.repository.list_documents(normalized)
+
+    @app.get("/api/v1/stocks/{ticker}/graph-facts", response_model=tuple[GraphFact, ...])
+    async def graph_facts(
+        ticker: Annotated[str, Path(min_length=1, max_length=20)],
+        _: Annotated[str, Depends(_user_id)],
+    ) -> tuple[GraphFact, ...]:
+        try:
+            normalized = normalize_ticker(ticker)[0]
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+            ) from error
+        return await dependencies.repository.list_graph_facts(normalized)
 
     async def chat(payload: ChatRequest, user_id: str) -> ChatResult:
         conversation_id = payload.conversation_id

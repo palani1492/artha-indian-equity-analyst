@@ -51,3 +51,26 @@ async def test_ingestion_preserves_explicit_bse_exchange(container) -> None:
     stock = await container.repository.get_stock("TCS")
     assert stock is not None
     assert stock.exchange == "BSE"
+
+
+async def test_ingestion_creates_cited_deduplicated_graph_facts(container) -> None:
+    await container.ingestion.ingest("TCS")
+    first = await container.repository.list_graph_facts("TCS")
+    await container.ingestion.ingest("TCS")
+    second = await container.repository.list_graph_facts("TCS")
+
+    assert len(first) >= 8
+    assert len(second) == len(first)
+    assert {fact.predicate for fact in first} >= {
+        "sector",
+        "metric_supported_by_source",
+        "event",
+        "mentions_company",
+    }
+    assert all(
+        fact.source_document_id
+        and str(fact.source_url)
+        and fact.evidence
+        and fact.observed_at
+        for fact in first
+    )

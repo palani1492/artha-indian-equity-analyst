@@ -175,6 +175,24 @@ class SourceDocument(BaseModel):
         )
 
 
+class GraphFact(BaseModel):
+    """A deterministic, source-backed edge or observation in the knowledge graph."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    subject_type: str = Field(min_length=1, max_length=40)
+    subject_id: str = Field(min_length=1, max_length=160)
+    predicate: str = Field(min_length=1, max_length=80)
+    object_type: str = Field(min_length=1, max_length=40)
+    object_id: str = Field(min_length=1, max_length=160)
+    object_value: str | None = Field(default=None, max_length=160)
+    source_document_id: str = Field(min_length=1, max_length=32)
+    source_url: HttpUrl
+    evidence: str = Field(min_length=1, max_length=500)
+    observed_at: datetime
+
+
 def source_story_fingerprint(document: SourceDocument) -> str:
     """Return a stable content fingerprint for cross-feed news deduplication."""
     normalized_title = " ".join(document.title.lower().split())

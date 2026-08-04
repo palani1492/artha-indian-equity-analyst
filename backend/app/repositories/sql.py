@@ -30,6 +30,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from app.domain.models import (
     ConversationMessage,
     DocumentKind,
+    GraphFact,
     InvestorPersona,
     ResearchConversation,
     ResearchNote,
@@ -87,6 +88,25 @@ class DocumentRow(Base):
     event_tag: Mapped[str] = mapped_column(String(80), nullable=False)
     mentioned_tickers: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+
+
+class GraphFactRow(Base):
+    __tablename__ = "graph_facts"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    subject_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    predicate: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    object_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    object_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    object_value: Mapped[str | None] = mapped_column(String(160))
+    source_document_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(String(500), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
 
 
 class PersonaRow(Base):
@@ -386,6 +406,34 @@ class SqlAlchemyResearchRepository:
                 await session.delete(row)
             return len(stale)
 
+    async def upsert_graph_facts(self, facts: tuple[GraphFact, ...]) -> None:
+        async with self._sessions.begin() as session:
+            for fact in facts:
+                values = fact.model_dump(mode="python")
+                values["source_url"] = str(fact.source_url)
+                row = await session.get(GraphFactRow, fact.id)
+                if row is None:
+                    session.add(GraphFactRow(**values))
+                    continue
+                for key, value in values.items():
+                    setattr(row, key, value)
+
+    async def list_graph_facts(self, ticker: str) -> tuple[GraphFact, ...]:
+        query = (
+            select(GraphFactRow)
+            .join(DocumentRow, DocumentRow.id == GraphFactRow.source_document_id)
+            .where(
+                (GraphFactRow.subject_id == ticker)
+                | (GraphFactRow.object_id == ticker)
+                | (DocumentRow.ticker == ticker)
+            )
+            .order_by(GraphFactRow.observed_at.desc(), GraphFactRow.id)
+        )
+        async with self._sessions() as session:
+            return tuple(
+                self._graph_fact(row) for row in (await session.scalars(query)).all()
+            )
+
     async def search_documents(
         self,
         query_embedding: tuple[float, ...],
@@ -625,6 +673,15 @@ class SqlAlchemyResearchRepository:
             if column.name != "embedding"
         }
         return SourceDocument.model_validate(values)
+
+    @staticmethod
+    def _graph_fact(row: GraphFactRow) -> GraphFact:
+        return GraphFact.model_validate(
+            {
+                column.name: getattr(row, column.name)
+                for column in GraphFactRow.__table__.columns
+            }
+        )
 
     @staticmethod
     def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
