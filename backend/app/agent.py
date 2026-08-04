@@ -25,9 +25,13 @@ from app.domain.models import (
 from app.embeddings import Embedder
 from app.generation import AnswerGenerator
 from app.grounding import GroundingGuard
+from app.ingestion import IngestionService
 from app.persona import PersonaExtractor, persona_as_text
 from app.ranking import StockRanker
 from app.repositories.base import ResearchRepository
+from app.ticker_directory import TICKER_DIRECTORY, TickerDirectoryEntry
+
+_MAX_ON_DEMAND_CANDIDATES = 8
 
 
 class AgentState(TypedDict, total=False):
@@ -64,11 +68,13 @@ class EquityResearchAgent:
         repository: ResearchRepository,
         embedder: Embedder,
         generator: AnswerGenerator,
+        ingestion: IngestionService,
         retrieval_limit: int = 6,
     ) -> None:
         self._repository = repository
         self._embedder = embedder
         self._generator = generator
+        self._ingestion = ingestion
         self._retrieval_limit = retrieval_limit
         self._persona = PersonaExtractor()
         self._ranker = StockRanker()
@@ -190,6 +196,26 @@ class EquityResearchAgent:
             constraints = state.get("constraints")
             if constraints is not None:
                 eligible = filter_candidates(stocks, constraints)
+                on_demand_indexed: list[str] = []
+                on_demand_failed: list[str] = []
+                if constraints.sector and len(eligible) < constraints.min_count:
+                    indexed = await self._repository.list_all_stocks()
+                    on_demand_indexed, on_demand_failed = (
+                        await self._index_on_demand_candidates(
+                            constraints.sector,
+                            {stock.ticker for stock in indexed},
+                            constraints.min_count - len(eligible),
+                        )
+                    )
+                    if on_demand_indexed:
+                        on_demand_stocks_list: list[Stock] = []
+                        for ticker in on_demand_indexed:
+                            stock = await self._repository.get_stock(ticker)
+                            if stock is not None:
+                                on_demand_stocks_list.append(stock)
+                        on_demand_stocks = tuple(on_demand_stocks_list)
+                        stocks = (*stocks, *on_demand_stocks)
+                        eligible = filter_candidates(stocks, constraints)
                 ranked_all = self._ranker.rank(persona, eligible, limit=len(eligible))
                 allocation = allocate_budget(
                     tuple(item.stock for item in ranked_all), constraints
@@ -201,21 +227,33 @@ class EquityResearchAgent:
                 sources = await self._fundamentals_for(
                     tuple(item.stock.ticker for item in ranked)
                 )
+                metadata: dict[str, Any] = {
+                    "requested_min_count": constraints.min_count,
+                    "requested_max_count": constraints.max_count,
+                    "budget_inr": str(constraints.budget_inr)
+                    if constraints.budget_inr is not None
+                    else None,
+                    "sector": constraints.sector,
+                    "total_selected_inr": str(allocation.total_cost),
+                    "universe": "followed/indexed",
+                }
+                if on_demand_indexed or on_demand_failed:
+                    metadata.update(
+                        {
+                            "universe": "followed + on-demand directory",
+                            "on_demand_indexed_tickers": on_demand_indexed,
+                            "on_demand_failed_tickers": on_demand_failed,
+                            "on_demand_limitation": self._on_demand_limitation(
+                                on_demand_failed
+                            ),
+                        }
+                    )
                 return {
                     "recommendations": ranked,
                     "sources": sources,
                     "requested_tickers": tuple(item.stock.ticker for item in ranked),
                     "constraint_limitation": allocation.shortfall,
-                    "metadata": {
-                        "requested_min_count": constraints.min_count,
-                        "requested_max_count": constraints.max_count,
-                        "budget_inr": str(constraints.budget_inr)
-                        if constraints.budget_inr is not None
-                        else None,
-                        "sector": constraints.sector,
-                        "total_selected_inr": str(allocation.total_cost),
-                        "universe": "followed/indexed",
-                    },
+                    "metadata": metadata,
                 }
             ranked = self._ranker.rank(persona, stocks, limit=3)
             sources = await self._fundamentals_for(
@@ -241,6 +279,63 @@ class EquityResearchAgent:
             "sources": self._fundamentals_first(sources),
             "requested_tickers": tickers,
         }
+
+    async def _index_on_demand_candidates(
+        self,
+        sector: str,
+        indexed_tickers: set[str],
+        needed: int,
+    ) -> tuple[list[str], list[str]]:
+        selected: list[str] = []
+        seen: set[str] = set()
+        for entry in TICKER_DIRECTORY:
+            if len(selected) >= _MAX_ON_DEMAND_CANDIDATES:
+                break
+            if entry.ticker in indexed_tickers or entry.ticker in seen:
+                continue
+            if not self._directory_matches_sector(entry, sector):
+                continue
+            selected.append(entry.ticker)
+            seen.add(entry.ticker)
+
+        indexed: list[str] = []
+        failed: list[str] = []
+        for ticker in selected:
+            try:
+                await self._ingestion.ingest(ticker)
+                if await self._repository.get_stock(ticker) is None:
+                    raise LookupError(f"Provider returned no stock for {ticker}")
+            except Exception:  # noqa: BLE001 - isolate each provider candidate
+                failed.append(ticker)
+            else:
+                indexed.append(ticker)
+                if len(indexed) >= needed:
+                    break
+        return indexed, failed
+
+    @staticmethod
+    def _directory_matches_sector(
+        entry: TickerDirectoryEntry, sector: str
+    ) -> bool:
+        entry_sector = entry.sector.casefold()
+        requested_sector = sector.casefold()
+        if entry_sector == requested_sector or entry_sector.startswith(
+            f"{requested_sector} "
+        ):
+            return True
+        return (
+            requested_sector == "banking"
+            and entry_sector.endswith(" bank")
+        ) or (
+            requested_sector == "financial services"
+            and entry_sector in {"finance", "insurance"}
+        )
+
+    @staticmethod
+    def _on_demand_limitation(failed: list[str]) -> str | None:
+        if not failed:
+            return None
+        return f"On-demand indexing failed for {', '.join(failed)}; results use the successful candidates."
 
     async def _compose_node(self, state: AgentState) -> dict[str, Any]:
         sources = state.get("sources", ())

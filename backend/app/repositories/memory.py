@@ -98,6 +98,9 @@ class InMemoryResearchRepository:
             self._stocks[ticker] for ticker in tickers if ticker in self._stocks
         )
 
+    async def list_all_stocks(self) -> tuple[Stock, ...]:
+        return tuple(self._stocks[ticker] for ticker in sorted(self._stocks))
+
     async def has_document_hash(self, ticker: str, content_hash: str) -> bool:
         return (ticker, content_hash) in self._hashes
 

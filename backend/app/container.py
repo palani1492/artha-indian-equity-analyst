@@ -97,7 +97,7 @@ def build_container(settings: Settings | None = None) -> Container:
     tagger = ResilientArticleTagger(primary_tagger)
     ingestion = IngestionService(repository, provider, embedder, tagger)
     agent = EquityResearchAgent(
-        repository, embedder, generator, runtime.retrieval_limit
+        repository, embedder, generator, ingestion, runtime.retrieval_limit
     )
     auth = GoogleOidcService(runtime, repository)
     limiter = FixedWindowRateLimiter(runtime.rate_limit_window_seconds)
