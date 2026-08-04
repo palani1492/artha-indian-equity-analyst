@@ -315,6 +315,7 @@ class ChatResult(BaseModel):
     recommendations: tuple[RankedStock, ...] = ()
     title: str | None = None
     answer_kind: str = "research"
+    metadata: dict[str, Any] = Field(default_factory=dict)
     persona: InvestorPersona | None = None
     conversation_id: str | None = None
     debug: dict[str, Any] = Field(default_factory=dict, exclude=True)

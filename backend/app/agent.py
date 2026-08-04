@@ -5,6 +5,12 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from app.complex_questions import (
+    ComplexQuestionConstraints,
+    allocate_budget,
+    filter_candidates,
+    parse_complex_question,
+)
 from app.domain.models import (
     ChatResult,
     Citation,
@@ -34,6 +40,10 @@ class AgentState(TypedDict, total=False):
     is_recommendation: bool
     is_comparison: bool
     is_recent: bool
+    is_constrained_recommendation: bool
+    constraints: ComplexQuestionConstraints | None
+    constraint_limitation: str | None
+    metadata: dict[str, Any]
     requested_tickers: tuple[str, ...]
     scope_tickers: tuple[str, ...]
     recommendations: tuple[RankedStock, ...]
@@ -98,12 +108,17 @@ class EquityResearchAgent:
             embedding = await self._embedder.embed(persona_as_text(updated))
             await self._repository.save_persona(updated, embedding)
         message = state["message"].lower()
+        constraints = parse_complex_question(state["message"])
         answer_kind = self._answer_kind(message, changed)
+        if constraints is not None and not changed:
+            answer_kind = "constrained_recommendation"
         comparison = any(
             phrase in message
             for phrase in ("compare", " versus ", " vs ", "difference between")
         )
-        recommendation = not comparison and any(
+        recommendation = not comparison and (
+            constraints is not None
+            or any(
             word in message
             for word in (
                 "recommend",
@@ -114,6 +129,7 @@ class EquityResearchAgent:
                 "best fit for my profile",
                 "find a fit for my profile",
                 "which followed",
+            )
             )
         )
         recent = any(
@@ -134,6 +150,8 @@ class EquityResearchAgent:
             "is_recommendation": recommendation,
             "is_comparison": comparison,
             "is_recent": recent,
+            "is_constrained_recommendation": constraints is not None,
+            "constraints": constraints,
         }
 
     async def _retrieve_node(self, state: AgentState) -> dict[str, Any]:
@@ -155,6 +173,36 @@ class EquityResearchAgent:
             tickers = followed
         if state["is_recommendation"]:
             persona = await self._repository.get_persona(state["user_id"])
+            constraints = state.get("constraints")
+            if constraints is not None:
+                eligible = filter_candidates(stocks, constraints)
+                ranked_all = self._ranker.rank(persona, eligible, limit=len(eligible))
+                allocation = allocate_budget(
+                    tuple(item.stock for item in ranked_all), constraints
+                )
+                selected_tickers = {stock.ticker for stock in allocation.selected}
+                ranked = tuple(
+                    item for item in ranked_all if item.stock.ticker in selected_tickers
+                )
+                sources = await self._fundamentals_for(
+                    tuple(item.stock.ticker for item in ranked)
+                )
+                return {
+                    "recommendations": ranked,
+                    "sources": sources,
+                    "requested_tickers": tuple(item.stock.ticker for item in ranked),
+                    "constraint_limitation": allocation.shortfall,
+                    "metadata": {
+                        "requested_min_count": constraints.min_count,
+                        "requested_max_count": constraints.max_count,
+                        "budget_inr": str(constraints.budget_inr)
+                        if constraints.budget_inr is not None
+                        else None,
+                        "sector": constraints.sector,
+                        "total_selected_inr": str(allocation.total_cost),
+                        "universe": "followed/indexed",
+                    },
+                }
             ranked = self._ranker.rank(persona, stocks, limit=3)
             sources = await self._fundamentals_for(
                 tuple(item.stock.ticker for item in ranked)
@@ -208,10 +256,17 @@ class EquityResearchAgent:
                 "draft": "I am focused on Indian-equity research, followed tickers, cited fundamentals/news, and investor memory. Ask me to compare followed stocks, summarize recent changes, explain a metric, or remember your investor preferences.",
                 "citations": (),
             }
+        if state.get("constraint_limitation"):
+            return {"draft": state["constraint_limitation"], "citations": ()}
         if state.get("is_recommendation"):
-            draft, citations = self._recommendation_draft(
-                state.get("recommendations", ()), sources
-            )
+            if state.get("is_constrained_recommendation"):
+                draft, citations = self._constrained_recommendation_draft(
+                    state.get("recommendations", ()), sources
+                )
+            else:
+                draft, citations = self._recommendation_draft(
+                    state.get("recommendations", ()), sources
+                )
         elif state.get("is_comparison") or len(state.get("requested_tickers", ())) > 1:
             draft, citations = await self._comparison_draft(
                 state.get("requested_tickers", ()), sources
@@ -234,7 +289,7 @@ class EquityResearchAgent:
             "help",
             "out_of_scope",
             "unsupported",
-        }:
+        } or state.get("constraint_limitation"):
             persona = await self._repository.get_persona(state["user_id"])
             return {
                 "result": ChatResult(
@@ -244,6 +299,7 @@ class EquityResearchAgent:
                     persona_updated=state.get("persona_updated", False),
                     title=state.get("title"),
                     answer_kind=state.get("answer_kind", "research"),
+                    metadata=state.get("metadata", {}),
                     persona=persona,
                 )
             }
@@ -287,6 +343,7 @@ class EquityResearchAgent:
                 recommendations=state.get("recommendations", ()),
                 title=state.get("title"),
                 answer_kind=state.get("answer_kind", "research"),
+                metadata=state.get("metadata", {}),
             )
         }
 
@@ -339,6 +396,46 @@ class EquityResearchAgent:
                 "No matching recent news was retrieved for this ticker; the fundamentals source above is the latest indexed evidence [1]."
             )
         return " ".join(sentences) or GroundingGuard.FALLBACK, citations
+
+    def _constrained_recommendation_draft(
+        self,
+        recommendations: tuple[RankedStock, ...],
+        sources: tuple[SourceDocument, ...],
+    ) -> tuple[str, tuple[Citation, ...]]:
+        draft, citations = self._recommendation_draft(recommendations, sources)
+        if draft == GroundingGuard.FALLBACK:
+            return draft, citations
+        first = recommendations[0].stock
+        fundamentals = next(
+            (source for source in sources if source.ticker == first.ticker and source.kind is DocumentKind.FUNDAMENTALS),
+            None,
+        )
+        if fundamentals is None or not citations:
+            return draft, citations
+        citation = next(
+            f"[{citation.index}]"
+            for citation in citations
+            if citation.document_id == fundamentals.id
+        )
+        fit_metric = (
+            f"return on equity is {first.roe}%"
+            if first.roe is not None
+            else f"P/E ratio is {first.pe_ratio}"
+            if first.pe_ratio is not None
+            else f"price is INR {first.price_inr}"
+        )
+        risk_metric = (
+            f"debt-to-equity is {first.debt_to_equity}"
+            if first.debt_to_equity is not None
+            else f"price is INR {first.price_inr}"
+        )
+        sections = (
+            f"Conclusion: {first.name} price is INR {first.price_inr} {citation}.",
+            f"Why it fits: {first.name} {fit_metric} {citation}.",
+            f"Risks: {first.name} {risk_metric} {citation}.",
+            f"Data limitations: The available evidence is {fundamentals.title} {citation}.",
+        )
+        return " ".join((draft, *sections)), citations
 
     async def _comparison_draft(
         self,
@@ -572,6 +669,7 @@ class EquityResearchAgent:
             "risk_summary": "Risk summary",
             "comparison": "Comparison",
             "recommendation": "Profile-fit recommendation",
+            "constrained_recommendation": "Constrained profile-fit selection",
             "recent_changes": "Recent changes",
         }.get(answer_kind, "Grounded research response")
 

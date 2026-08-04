@@ -84,6 +84,26 @@ async def test_in_memory_research_data_isolated_by_user() -> None:
 
 
 @pytest.mark.asyncio
+async def test_in_memory_conversation_title_update_preserves_ownership() -> None:
+    repository = InMemoryResearchRepository()
+    now = datetime.now(UTC)
+    conversation = ResearchConversation(
+        id="conversation-rename",
+        user_id="user-1",
+        title="Original",
+        created_at=now,
+        updated_at=now,
+    )
+    await repository.create_conversation(conversation)
+    renamed = conversation.model_copy(update={"title": "Renamed"})
+
+    await repository.update_conversation(renamed)
+
+    assert (await repository.get_conversation("user-1", conversation.id)).title == "Renamed"
+    assert await repository.get_conversation("user-2", conversation.id) is None
+
+
+@pytest.mark.asyncio
 async def test_in_memory_admin_resets_and_deletes_only_target_user_data() -> None:
     repository = InMemoryResearchRepository()
     await repository.initialize()

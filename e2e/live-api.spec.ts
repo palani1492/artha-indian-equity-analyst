@@ -36,6 +36,8 @@ async function routeBackendContract(
     followPayload?: Record<string, unknown>;
     ingestPayload?: Record<string, unknown>;
     unfollowPath?: string;
+    conversationTitle?: string;
+    deletedNote?: string;
   },
 ) {
   await page.route("**/api/**", async (route: Route) => {
@@ -47,6 +49,21 @@ async function routeBackendContract(
       return route.fulfill({ json: { id: "google-1", email: "reviewer@example.com", name: "Reviewer" } });
     }
     if (path === "/api/v1/stocks") return route.fulfill({ json: [STOCK] });
+    if (path === "/api/v1/tickers/search") {
+      return route.fulfill({
+        json: {
+          source: "bundled-indian-equity-directory",
+          source_metadata: { refresh_policy: "manual bundle update" },
+          suggestions: [{
+            ticker: "SBIN",
+            company_name: "State Bank of India",
+            sector: "Banking",
+            exchange: "BSE",
+            bse_id: "500112",
+          }],
+        },
+      });
+    }
     if (path === "/api/v1/persona" && method === "GET") {
       return route.fulfill({
         json: {
@@ -67,6 +84,23 @@ async function routeBackendContract(
     if (path === "/api/v1/persona" && method === "PATCH") {
       capture.persona = request.postDataJSON();
       return route.fulfill({ json: capture.persona });
+    }
+    if (path === "/api/v1/conversations" && method === "GET") {
+      return route.fulfill({ json: [{ id: "conversation-1", title: capture.conversationTitle ?? "Untitled research", created_at: "2026-08-01T09:00:00Z", updated_at: "2026-08-01T09:00:00Z" }] });
+    }
+    if (path === "/api/v1/conversations/conversation-1/messages" && method === "GET") {
+      return route.fulfill({ json: [] });
+    }
+    if (path === "/api/v1/conversations/conversation-1" && method === "PATCH") {
+      capture.conversationTitle = String(request.postDataJSON().title);
+      return route.fulfill({ json: { id: "conversation-1", title: capture.conversationTitle, created_at: "2026-08-01T09:00:00Z", updated_at: "2026-08-01T09:30:00Z" } });
+    }
+    if (path === "/api/v1/notes" && method === "GET") {
+      return route.fulfill({ json: [{ id: "note-1", title: "TCS thesis", body: "Review demand.", scope_tickers: ["TCS"], updated_at: "2026-08-01T09:00:00Z" }] });
+    }
+    if (path === "/api/v1/notes/note-1" && method === "DELETE") {
+      capture.deletedNote = "note-1";
+      return route.fulfill({ status: 204, body: "" });
     }
     if (path === "/api/v1/sources" || path === "/api/sources") return route.fulfill({ json: [SOURCE] });
     if (path.endsWith("/follow") && method === "POST") {
@@ -102,6 +136,7 @@ async function routeBackendContract(
     if (path === "/api/v1/chat" && method === "POST") {
       return route.fulfill({
         json: {
+          conversation_id: "conversation-1",
           answer: "TCS shows low leverage at the cited market price [1].",
           citations: [
             {
@@ -140,6 +175,31 @@ test("adapts the canonical FastAPI contract and links citations to retrieved doc
   await answer.getByRole("button", { name: "Open source 1" }).click();
   await expect(page.locator("#source-doc-tcs-1")).toHaveClass(/is-expanded/);
   await expect(page.locator("#source-doc-tcs-1")).toContainText("low leverage");
+});
+
+test("derives and persists conversation titles and deletes notes after confirmation", async ({ page }) => {
+  const capture: { conversationTitle?: string; deletedNote?: string } = {};
+  await routeBackendContract(page, capture);
+  await page.goto("/");
+
+  await expect(page.getByText("Live data", { exact: true })).toBeVisible();
+  const composer = page.getByRole("form", { name: "Ask Artha" });
+  await composer.getByLabel("Ask Artha about an Indian equity").fill("  Review   TCS demand this quarter  ");
+  await composer.getByRole("button", { name: "Ask Artha" }).click();
+  await expect.poll(() => capture.conversationTitle).toBe("Review TCS demand this quarter");
+  await expect(page.locator("#conversation-select")).toContainText("Review TCS demand this quarter");
+
+  await page.getByRole("button", { name: "Rename" }).click();
+  await page.getByLabel("Conversation title").fill("TCS demand thesis");
+  await page.getByRole("button", { name: "Save title" }).click();
+  await expect.poll(() => capture.conversationTitle).toBe("TCS demand thesis");
+  await page.reload();
+  await expect(page.locator("#conversation-select")).toContainText("TCS demand thesis");
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Delete note TCS thesis" }).click();
+  await expect.poll(() => capture.deletedNote).toBe("note-1");
+  await expect(page.getByText("TCS thesis", { exact: true })).toHaveCount(0);
 });
 
 test("sends persona updates in the FastAPI schema and logs out with POST", async ({ page }) => {
@@ -199,6 +259,8 @@ test("preserves BSE across follow, hydration, and manual refresh", async ({ page
 
   await page.getByLabel("Exchange").selectOption("BSE");
   await page.getByLabel("Add a ticker").fill("SBIN");
+  await expect(page.getByRole("option", { name: /SBIN State Bank of India BSE/ })).toBeVisible();
+  await page.getByLabel("Add a ticker").press("Enter");
   await page.getByRole("button", { name: "Add", exact: true }).click();
 
   await expect.poll(() => capture.followPath).toBe("/api/v1/stocks/SBIN.BO/follow");

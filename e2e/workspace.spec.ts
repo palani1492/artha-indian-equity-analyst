@@ -24,6 +24,17 @@ test.describe("Artha critical research flows", () => {
     await expect(page.getByLabel("RELIANCE current quote")).toContainText("₹1,398.40");
   });
 
+  test("keeps the right rail in product order and uses indexed coverage data", async ({ page }) => {
+    await openDemoWorkspace(page);
+
+    const rail = page.locator(".context-rail");
+    const sections = await rail.locator(":scope > section").evaluateAll((items) =>
+      items.map((item) => item.id || item.getAttribute("aria-labelledby")),
+    );
+    expect(sections).toEqual(["investor-memory", "coverage-title", "sources-title"]);
+    await expect(rail.locator(".count-label")).toHaveText("3");
+  });
+
   test("keeps demo mode isolated and links to live Google sign-in", async ({ page }) => {
     await openDemoWorkspace(page);
 
@@ -122,6 +133,9 @@ test.describe("Artha critical research flows", () => {
 
     await page.getByLabel("Exchange").selectOption("BSE");
     await page.getByLabel("Add a ticker").fill("sbin");
+    await expect(page.getByRole("option", { name: /SBIN State Bank of India BSE/ })).toBeVisible();
+    await page.getByLabel("Add a ticker").press("ArrowDown");
+    await page.getByLabel("Add a ticker").press("Enter");
     await page.getByRole("button", { name: "Add", exact: true }).click();
 
     await expect(page.getByText("SBIN added. Fundamentals and news are queued.")).toBeVisible();

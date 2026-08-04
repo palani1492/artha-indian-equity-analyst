@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import (
@@ -26,6 +26,7 @@ from app.domain.models import (
     ChatResult,
     Citation,
     ConversationMessage,
+    Exchange,
     GraphFact,
     IngestionResult,
     InvestorPersona,
@@ -36,6 +37,7 @@ from app.domain.models import (
     Stock,
     normalize_ticker,
 )
+from app.ticker_directory import DIRECTORY_METADATA, search_ticker_directory
 
 
 class ChatRequest(BaseModel):
@@ -112,6 +114,20 @@ class OAuthConfigResponse(BaseModel):
     scopes: tuple[str, ...] = ("openid", "email", "profile")
 
 
+class TickerSuggestion(BaseModel):
+    ticker: str
+    company_name: str
+    sector: str
+    exchange: str
+    bse_id: str | None
+
+
+class TickerSearchResponse(BaseModel):
+    source: str
+    source_metadata: dict[str, str]
+    suggestions: tuple[TickerSuggestion, ...]
+
+
 class AdminActionResponse(BaseModel):
     id: str
     action: str
@@ -126,6 +142,18 @@ class ConversationCreateRequest(BaseModel):
     @classmethod
     def clean_title(cls, value: str) -> str:
         return value.strip()
+
+
+class ConversationPatchRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("title cannot be blank")
+        return cleaned
 
 
 class NoteRequest(BaseModel):
@@ -235,6 +263,31 @@ def create_app(container: Container | None = None) -> FastAPI:
             redirect_uri=settings.google_redirect_uri,
         )
 
+    @app.get("/api/v1/tickers/search", response_model=TickerSearchResponse)
+    async def search_tickers(
+        q: Annotated[str, Query(min_length=2, max_length=30)],
+        exchange: Annotated[Literal["NSE", "BSE"] | None, Query()] = None,
+    ) -> TickerSearchResponse:
+        exchange_filter = Exchange(exchange) if exchange else None
+        suggestions = tuple(
+            TickerSuggestion(
+                ticker=entry.ticker,
+                company_name=entry.company_name,
+                sector=entry.sector,
+                exchange=entry.exchange.value,
+                bse_id=entry.bse_id,
+            )
+            for entry in search_ticker_directory(q, exchange_filter)
+        )
+        return TickerSearchResponse(
+            source=DIRECTORY_METADATA.source,
+            source_metadata={
+                "description": DIRECTORY_METADATA.description,
+                "refresh_policy": DIRECTORY_METADATA.refresh_policy,
+            },
+            suggestions=suggestions,
+        )
+
     @app.get("/api/v1/auth/google/login")
     async def oauth_login() -> RedirectResponse:
         response = RedirectResponse("/", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
@@ -299,6 +352,26 @@ def create_app(container: Container | None = None) -> FastAPI:
             updated_at=now,
         )
         await dependencies.repository.create_conversation(conversation)
+        return conversation
+
+    @app.patch(
+        "/api/v1/conversations/{conversation_id}",
+        response_model=ResearchConversation,
+    )
+    async def update_conversation(
+        conversation_id: Annotated[str, Path(min_length=1, max_length=64)],
+        payload: ConversationPatchRequest,
+        user_id: Annotated[str, Depends(_user_id)],
+    ) -> ResearchConversation:
+        current = await dependencies.repository.get_conversation(user_id, conversation_id)
+        if current is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
+            )
+        conversation = current.model_copy(
+            update={"title": payload.title, "updated_at": datetime.now(UTC)}
+        )
+        await dependencies.repository.update_conversation(conversation)
         return conversation
 
     @app.get(

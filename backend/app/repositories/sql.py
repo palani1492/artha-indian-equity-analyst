@@ -612,6 +612,14 @@ class SqlAlchemyResearchRepository:
             row = await session.scalar(query)
             return self._conversation(row) if row else None
 
+    async def update_conversation(self, conversation: ResearchConversation) -> None:
+        async with self._sessions.begin() as session:
+            row = await session.get(ConversationRow, conversation.id)
+            if row is None or row.user_id != conversation.user_id:
+                return
+            row.title = conversation.title
+            row.updated_at = conversation.updated_at
+
     async def add_conversation_message(self, message: ConversationMessage) -> None:
         async with self._sessions.begin() as session:
             values = message.model_dump(mode="python")

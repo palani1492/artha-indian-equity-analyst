@@ -24,6 +24,50 @@ def test_health_is_public(client) -> None:
     assert client.get("/api/health").status_code == 200
 
 
+def test_ticker_search_is_public_and_returns_directory_metadata(client) -> None:
+    response = client.get("/api/v1/tickers/search", params={"q": "inf"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "bundled-indian-equity-directory"
+    assert body["source_metadata"]["refresh_policy"] == "manual bundle update"
+    assert body["suggestions"]
+    assert body["suggestions"][0] == {
+        "ticker": "INFY",
+        "company_name": "Infosys",
+        "sector": "IT services",
+        "exchange": "NSE",
+        "bse_id": "500209",
+    }
+
+
+@pytest.mark.parametrize("query", ("", "i", "x" * 31))
+def test_ticker_search_validates_query_length(client, query: str) -> None:
+    response = client.get("/api/v1/tickers/search", params={"q": query})
+
+    assert response.status_code == 422
+
+
+def test_ticker_search_filters_exchange_and_matches_company_name(client) -> None:
+    response = client.get(
+        "/api/v1/tickers/search", params={"q": "bank", "exchange": "BSE"}
+    )
+
+    assert response.status_code == 200
+    suggestions = response.json()["suggestions"]
+    assert suggestions
+    assert all(item["exchange"] == "BSE" for item in suggestions)
+    assert any(item["ticker"] == "HDFCBANK" for item in suggestions)
+
+
+def test_ticker_search_rejects_unknown_exchange(client) -> None:
+    response = client.get(
+        "/api/v1/tickers/search", params={"q": "it", "exchange": "NYSE"}
+    )
+
+    assert response.status_code == 422
+
+
 def test_liveness_does_not_depend_on_repository_health(client, container) -> None:
     async def unhealthy() -> bool:
         return False
@@ -66,6 +110,36 @@ def test_research_conversations_persist_scoped_cited_chat(client, auth_headers) 
     assert [message["role"] for message in messages.json()] == ["user", "assistant"]
     assert messages.json()[1]["scope_tickers"] == ["TCS"]
     assert messages.json()[1]["citations"]
+
+
+def test_conversation_title_patch_is_validated_and_user_owned(client, auth_headers) -> None:
+    created = client.post(
+        "/api/v1/conversations", headers=auth_headers, json={"title": "Original"}
+    )
+    conversation_id = created.json()["id"]
+
+    renamed = client.patch(
+        f"/api/v1/conversations/{conversation_id}",
+        headers=auth_headers,
+        json={"title": "  Renamed thesis  "},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "Renamed thesis"
+
+    assert client.patch(
+        f"/api/v1/conversations/{conversation_id}",
+        headers={"X-User-ID": "other@example.com"},
+        json={"title": "No access"},
+    ).status_code == 404
+    assert client.patch(
+        f"/api/v1/conversations/{conversation_id}",
+        headers=auth_headers,
+        json={"title": " "},
+    ).status_code == 422
+    assert client.patch(
+        f"/api/v1/conversations/{conversation_id}",
+        json={"title": "Unauthenticated"},
+    ).status_code == 401
 
 
 def test_notes_are_user_owned_and_validated(client, auth_headers) -> None:
@@ -318,6 +392,65 @@ def test_starter_profile_question_returns_followed_recommendations(
     body = response.json()
     assert body["recommendations"]
     assert body["citations"]
+
+
+def test_complex_question_filters_followed_universe_and_total_budget(
+    client, auth_headers
+) -> None:
+    for ticker in ("TCS", "INFY", "RELIANCE"):
+        assert client.post(
+            f"/api/v1/stocks/{ticker}/follow", headers=auth_headers
+        ).status_code == 201
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={
+            "message": "find me 1 to 5 technology stocks within INR 20000 that match my investor profile"
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer_kind"] == "constrained_recommendation"
+    assert body["grounded"] is True
+    assert {item["stock"]["ticker"] for item in body["recommendations"]} == {
+        "TCS",
+        "INFY",
+    }
+    assert sum(float(item["stock"]["price_inr"]) for item in body["recommendations"]) <= 20000
+    assert body["metadata"] == {
+        "requested_min_count": 1,
+        "requested_max_count": 5,
+        "budget_inr": "20000",
+        "sector": "IT",
+        "total_selected_inr": "5967.80",
+        "universe": "followed/indexed",
+    }
+    assert body["citations"]
+    assert "Conclusion:" in body["answer"]
+    assert "Risks:" in body["answer"]
+    assert "Data limitations:" in body["answer"]
+
+
+def test_complex_question_states_limitation_when_followed_data_is_insufficient(
+    client, auth_headers
+) -> None:
+    assert client.post("/api/v1/stocks/TCS/follow", headers=auth_headers).status_code == 201
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={"message": "find 3 to 5 technology stocks within INR 1000"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer_kind"] == "constrained_recommendation"
+    assert body["grounded"] is True
+    assert body["recommendations"] == []
+    assert "Only 0 of the requested minimum 3 stocks fit" in body["answer"]
+    assert body["metadata"]["universe"] == "followed/indexed"
 
 
 def test_persona_patch_validates_and_updates_fields(client, auth_headers) -> None:

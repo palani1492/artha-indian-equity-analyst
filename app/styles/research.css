@@ -32,6 +32,18 @@
   font-size: 18px;
 }
 
+.conversation-picker,
+.conversation-title-editor > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conversation-title-editor input {
+  min-width: 0;
+  flex: 1;
+}
+
 .active-quote {
   display: grid;
   grid-template-columns: auto auto;

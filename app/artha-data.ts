@@ -13,6 +13,14 @@ export type Stock = {
   updatedAt?: string;
 };
 
+export type TickerSuggestion = {
+  ticker: string;
+  companyName: string;
+  sector: string;
+  exchange: "NSE" | "BSE";
+  bseId: string | null;
+};
+
 export type Persona = {
   risk: string;
   horizon: string;
@@ -111,6 +119,39 @@ export const DEMO_STOCKS: Stock[] = [
     tone: "Cautious",
     indexedDocuments: 15,
     updatedLabel: "31 min ago",
+  },
+];
+
+export const DEMO_TICKER_SUGGESTIONS: TickerSuggestion[] = [
+  ...DEMO_STOCKS.flatMap((stock) => [
+    {
+      ticker: stock.symbol,
+      companyName: stock.company,
+      sector: stock.sector,
+      exchange: stock.exchange,
+      bseId: null,
+    },
+  ]),
+  {
+    ticker: "SBIN",
+    companyName: "State Bank of India",
+    sector: "Public bank",
+    exchange: "NSE",
+    bseId: "500112",
+  },
+  {
+    ticker: "SBIN",
+    companyName: "State Bank of India",
+    sector: "Public bank",
+    exchange: "BSE",
+    bseId: "500112",
+  },
+  {
+    ticker: "PEIL",
+    companyName: "PEIL",
+    sector: "Indian equity",
+    exchange: "NSE",
+    bseId: null,
   },
 ];
 

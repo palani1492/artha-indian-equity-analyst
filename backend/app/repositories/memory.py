@@ -419,6 +419,15 @@ class InMemoryResearchRepository:
         conversation = self._conversations.get(conversation_id)
         return conversation if conversation and conversation.user_id == user_id else None
 
+    async def update_conversation(self, conversation: ResearchConversation) -> None:
+        async with self._write_lock:
+            current = self._conversations.get(conversation.id)
+            if current is not None and current.user_id == conversation.user_id:
+                self._conversations = {
+                    **self._conversations,
+                    conversation.id: conversation,
+                }
+
     async def add_conversation_message(self, message: ConversationMessage) -> None:
         async with self._write_lock:
             self._messages = {
