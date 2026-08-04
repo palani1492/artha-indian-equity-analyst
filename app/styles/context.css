@@ -226,6 +226,18 @@
   border-top: 1px solid var(--line);
 }
 
+.note-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.note-delete {
+  flex: 0 0 auto;
+  color: var(--negative);
+}
+
 .notes-list span {
   color: var(--muted);
   font-size: 0.86rem;

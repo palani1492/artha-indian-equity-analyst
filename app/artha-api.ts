@@ -8,6 +8,7 @@ import {
   type ResearchConversation,
   type ResearchNote,
   type Stock,
+  type TickerSuggestion,
 } from "./artha-data";
 
 export const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -73,6 +74,29 @@ export async function requestAuth(): Promise<unknown> {
   throw lastError;
 }
 
+export async function requestTickerSuggestions(
+  query: string,
+  exchange: "NSE" | "BSE",
+): Promise<{ suggestions: TickerSuggestion[]; source: string }> {
+  const params = new URLSearchParams({ q: query, exchange });
+  const payload = await requestJson(`/api/v1/tickers/search?${params.toString()}`);
+  const value = isRecord(payload) ? payload : {};
+  const rawSuggestions = Array.isArray(value.suggestions) ? value.suggestions : [];
+  return {
+    source: String(value.source ?? "unknown"),
+    suggestions: rawSuggestions.flatMap((item) => {
+      if (!isRecord(item) || typeof item.ticker !== "string") return [];
+      return [{
+        ticker: item.ticker.toUpperCase(),
+        companyName: String(item.company_name ?? item.company ?? item.ticker),
+        sector: String(item.sector ?? "Indian equity"),
+        exchange: String(item.exchange).toUpperCase() === "BSE" ? "BSE" : "NSE",
+        bseId: typeof item.bse_id === "string" ? item.bse_id : null,
+      } satisfies TickerSuggestion];
+    }),
+  };
+}
+
 export async function requestFirst(paths: string[], init?: RequestInit): Promise<unknown> {
   let lastError: unknown = new Error("No API path was available");
   for (const path of paths) {
@@ -134,6 +158,23 @@ export async function requestConversations(): Promise<ResearchConversation[]> {
 export async function createConversation(title = "New research conversation"): Promise<ResearchConversation> {
   const value = await requestJson("/api/v1/conversations", {
     method: "POST",
+    body: JSON.stringify({ title }),
+  });
+  if (!isRecord(value) || typeof value.id !== "string") throw new Error("Invalid conversation response");
+  return {
+    id: value.id,
+    title: String(value.title ?? title),
+    createdAt: String(value.created_at ?? ""),
+    updatedAt: String(value.updated_at ?? ""),
+  };
+}
+
+export async function renameConversation(
+  conversationId: string,
+  title: string,
+): Promise<ResearchConversation> {
+  const value = await requestJson(`/api/v1/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "PATCH",
     body: JSON.stringify({ title }),
   });
   if (!isRecord(value) || typeof value.id !== "string") throw new Error("Invalid conversation response");
@@ -244,6 +285,10 @@ export async function createNote(payload: {
     citations: [],
     updatedAt: String(value.updated_at ?? ""),
   };
+}
+
+export async function deleteNote(noteId: string): Promise<void> {
+  await requestJson(`/api/v1/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
 }
 
 export async function requestUnfollow(

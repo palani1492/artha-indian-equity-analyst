@@ -12,6 +12,7 @@ import {
   DEMO_PERSONA,
   DEMO_SOURCES,
   DEMO_STOCKS,
+  DEMO_TICKER_SUGGESTIONS,
   INITIAL_MESSAGES,
   type ChatMessage,
   type Citation,
@@ -20,6 +21,7 @@ import {
   type ResearchConversation,
   type ResearchNote,
   type Stock,
+  type TickerSuggestion,
 } from "./artha-data";
 import {
   API_ORIGIN,
@@ -27,6 +29,7 @@ import {
   apiAnswer,
   authUser,
   createConversation,
+  renameConversation,
   demoAnswer,
   formatGreeting,
   formatPrice,
@@ -38,9 +41,11 @@ import {
   requestAuth,
   requestAdminUsers,
   createNote,
+  deleteNote,
   requestConversationMessages,
   requestConversations,
   requestFirst,
+  requestTickerSuggestions,
   requestLogout,
   requestNotes,
   requestUnfollow,
@@ -85,6 +90,10 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [isThinking, setIsThinking] = useState(false);
   const [followTicker, setFollowTicker] = useState("");
   const [exchange, setExchange] = useState<"NSE" | "BSE">("NSE");
+  const [tickerSuggestions, setTickerSuggestions] = useState<TickerSuggestion[]>([]);
+  const [selectedTicker, setSelectedTicker] = useState<TickerSuggestion | null>(null);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const [tickerSearchOpen, setTickerSearchOpen] = useState(false);
   const [followStatus, setFollowStatus] = useState("");
   const [pendingUnfollow, setPendingUnfollow] = useState<string | null>(null);
   const [ingesting, setIngesting] = useState(false);
@@ -107,6 +116,9 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [welcomeTitle, setWelcomeTitle] = useState("Your research desk is ready.");
   const [conversations, setConversations] = useState<ResearchConversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationTitleDraft, setConversationTitleDraft] = useState("");
+  const [editingConversation, setEditingConversation] = useState(false);
+  const [savingConversationTitle, setSavingConversationTitle] = useState(false);
   const [notes, setNotes] = useState<ResearchNote[]>([]);
   const [noteTitle, setNoteTitle] = useState("");
   const [noteBody, setNoteBody] = useState("");
@@ -114,6 +126,40 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [adminError, setAdminError] = useState("");
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
   const researchRequestId = useRef(0);
+
+  useEffect(() => {
+    const query = followTicker.trim();
+    if (query.length < 2 || connection !== "live") {
+      return;
+    }
+    let disposed = false;
+    const timer = window.setTimeout(() => {
+      void requestTickerSuggestions(query, exchange)
+        .then((result) => {
+          if (disposed) return;
+          setTickerSuggestions(result.suggestions);
+          setActiveSuggestionIndex(result.suggestions.length ? 0 : -1);
+          setTickerSearchOpen(true);
+        })
+        .catch(() => {
+          if (!disposed) setTickerSuggestions([]);
+        });
+    }, 250);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [connection, exchange, followTicker]);
+
+  const visibleTickerSuggestions = followTicker.trim().length < 2
+    ? []
+    : connection === "demo"
+    ? DEMO_TICKER_SUGGESTIONS.filter((suggestion) =>
+        suggestion.exchange === exchange &&
+        (suggestion.ticker.includes(followTicker.trim().toUpperCase()) ||
+          suggestion.companyName.toUpperCase().includes(followTicker.trim().toUpperCase())),
+      )
+    : tickerSuggestions;
 
   const activeStock = useMemo(
     () => stocks.find((stock) => `${stock.exchange}:${stock.symbol}` === activeKey) ?? stocks[0],
@@ -129,6 +175,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     () => new Map(visibleCitations.map((citation) => [citation.sourceId, citation.label])),
     [visibleCitations],
   );
+  const activeConversation = conversations.find((conversation) => conversation.id === conversationId) ?? null;
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -338,6 +385,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
       const latest = nextConversations[0];
       if (!latest) return;
       setConversationId(latest.id);
+      setConversationTitleDraft(latest.title === "Untitled research" ? "" : latest.title);
       const history = await requestConversationMessages(latest.id);
       if (!disposed && history.length) setMessages(history);
     }).catch(() => {
@@ -409,6 +457,10 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
       createdLabel: "Now",
       createdAt: new Date().toISOString(),
     };
+    const generatedTitle = conversationTitleFromMessage(cleanQuestion);
+    const shouldNameConversation = Boolean(
+      connection === "live" && conversationId && !messages.some((message) => message.role === "user"),
+    );
     const nextPersona = inferPersona(cleanQuestion, persona);
     const scopedTickerSymbols = scopedStocks.map((stock) => stock.symbol);
     const requestedTicker = scopedStocks.length === 1
@@ -427,6 +479,9 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     setAnswerEvidence(null);
     setPendingEvidenceScope(evidenceScope);
     setExpandedSource(null);
+    if (shouldNameConversation && conversationId) {
+      void saveConversationTitle(conversationId, generatedTitle);
+    }
 
     let answer: ChatMessage | null = null;
     if (connection !== "demo") {
@@ -447,6 +502,9 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
         if (learnedPersona) persistPersona(learnedPersona);
         if (isRecord(payload) && typeof payload.conversation_id === "string") {
           setConversationId(payload.conversation_id);
+          if (!conversationId) {
+            void saveConversationTitle(payload.conversation_id, generatedTitle);
+          }
         }
       } catch {
         if (researchRequestId.current !== requestId) return;
@@ -485,6 +543,33 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     setIsThinking(false);
   }
 
+  async function saveConversationTitle(id: string, title: string) {
+    try {
+      const renamed = await renameConversation(id, title);
+      setConversations((current) => {
+        const exists = current.some((conversation) => conversation.id === id);
+        return exists
+          ? current.map((conversation) => conversation.id === id ? renamed : conversation)
+          : [renamed, ...current];
+      });
+      if (conversationId === id) setConversationTitleDraft(renamed.title);
+      setEditingConversation(false);
+    } catch {
+      setNotice("The conversation title could not be saved.");
+    }
+  }
+
+  async function handleConversationRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!conversationId || !conversationTitleDraft.trim()) return;
+    setSavingConversationTitle(true);
+    try {
+      await saveConversationTitle(conversationId, conversationTitleDraft.trim());
+    } finally {
+      setSavingConversationTitle(false);
+    }
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void sendQuestion(question);
@@ -509,14 +594,14 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
 
   async function handleFollow(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const enteredTicker = followTicker
-      .toUpperCase()
-      .replace(/[^A-Z0-9&.]/g, "")
-      .slice(0, 14);
-    const explicitBse = /\.(?:BO|BSE)$/.test(enteredTicker);
-    const explicitNse = /\.(?:NS|NSE)$/.test(enteredTicker);
-    const selectedExchange = explicitBse ? "BSE" : explicitNse ? "NSE" : exchange;
-    const symbol = enteredTicker.replace(/\.(?:BO|BSE|NS|NSE)$/, "");
+    if (!selectedTicker) {
+      setFollowStatus("Choose a ticker from the suggestions before adding it.");
+      setTickerSearchOpen(followTicker.trim().length >= 2);
+      return;
+    }
+    const chosenTicker = selectedTicker;
+    const selectedExchange = chosenTicker.exchange;
+    const symbol = chosenTicker.ticker;
     const providerTicker = selectedExchange === "BSE" ? `${symbol}.BO` : symbol;
     if (!symbol) {
       setFollowStatus("Enter a valid NSE or BSE ticker.");
@@ -575,6 +660,9 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     setActiveKey(`${selectedExchange}:${symbol}`);
     resetResearchContext();
     setFollowTicker("");
+    setSelectedTicker(null);
+    setTickerSuggestions([]);
+    setTickerSearchOpen(false);
     await refreshSources(symbol);
     setFollowStatus(`${symbol} added. Fundamentals and news are queued.`);
   }
@@ -719,6 +807,8 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
           ? "Your admin session has expired. Sign in again."
           : status === 403
             ? "This account is not authorized for admin access."
+            : status === 409
+              ? "You cannot modify your own administrator account."
             : status === 404
               ? "That user no longer exists. Refresh the list."
               : "The admin action could not be completed. Try again later.",
@@ -780,7 +870,11 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               <select
                 aria-label="Exchange"
                 value={exchange}
-                onChange={(event) => setExchange(event.target.value === "BSE" ? "BSE" : "NSE")}
+                onChange={(event) => {
+                  setExchange(event.target.value === "BSE" ? "BSE" : "NSE");
+                  setSelectedTicker(null);
+                  setTickerSearchOpen(followTicker.trim().length >= 2);
+                }}
               >
                 <option>NSE</option>
                 <option>BSE</option>
@@ -788,13 +882,72 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               <input
                 id="ticker"
                 value={followTicker}
-                onChange={(event) => setFollowTicker(event.target.value.toUpperCase())}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="ticker-suggestions"
+                aria-expanded={tickerSearchOpen && visibleTickerSuggestions.length > 0}
+                aria-activedescendant={activeSuggestionIndex >= 0 ? `ticker-suggestion-${activeSuggestionIndex}` : undefined}
+                onChange={(event) => {
+                  setFollowTicker(event.target.value.toUpperCase());
+                  setSelectedTicker(null);
+                  setTickerSearchOpen(event.target.value.trim().length >= 2);
+                  setActiveSuggestionIndex(0);
+                }}
+                onFocus={() => {
+                  if (followTicker.trim().length >= 2 && visibleTickerSuggestions.length) setTickerSearchOpen(true);
+                }}
+                onKeyDown={(event) => {
+                  if (!tickerSearchOpen || !visibleTickerSuggestions.length) return;
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setActiveSuggestionIndex((current) => Math.min(current + 1, visibleTickerSuggestions.length - 1));
+                  } else if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setActiveSuggestionIndex((current) => Math.max(current - 1, 0));
+                  } else if (event.key === "Enter") {
+                    event.preventDefault();
+                    const suggestion = visibleTickerSuggestions[activeSuggestionIndex];
+                    if (suggestion) {
+                      setSelectedTicker(suggestion);
+                      setFollowTicker(suggestion.ticker);
+                      setExchange(suggestion.exchange);
+                      setTickerSearchOpen(false);
+                    }
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    setTickerSearchOpen(false);
+                  }
+                }}
                 placeholder="SBIN"
                 autoComplete="off"
                 spellCheck={false}
               />
               <button type="submit">Add</button>
             </div>
+            {tickerSearchOpen && visibleTickerSuggestions.length > 0 ? (
+              <ul id="ticker-suggestions" className="ticker-suggestions" role="listbox" aria-label="Ticker suggestions">
+                {visibleTickerSuggestions.map((suggestion, index) => (
+                  <li
+                    id={`ticker-suggestion-${index}`}
+                    key={`${suggestion.exchange}-${suggestion.ticker}`}
+                    role="option"
+                    aria-selected={index === activeSuggestionIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setSelectedTicker(suggestion);
+                      setFollowTicker(suggestion.ticker);
+                      setExchange(suggestion.exchange);
+                      setActiveSuggestionIndex(index);
+                      setTickerSearchOpen(false);
+                    }}
+                  >
+                    <strong>{suggestion.ticker}</strong>
+                    <span>{suggestion.companyName}</span>
+                    <small>{suggestion.exchange} / {suggestion.sector}{suggestion.bseId ? ` / BSE ${suggestion.bseId}` : ""}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <p className="form-help" aria-live="polite">
               {followStatus || "Following queues fundamentals and recent Indian market news."}
             </p>
@@ -877,30 +1030,70 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
           {connection === "live" && authState === "authenticated" ? (
             <div className="conversation-controls">
               <label htmlFor="conversation-select">Conversation</label>
-              <select
-                id="conversation-select"
-                value={conversationId ?? ""}
-                onChange={async (event) => {
-                  const selected = event.target.value;
-                  setConversationId(selected || null);
-                  if (!selected) return;
-                  const history = await requestConversationMessages(selected);
-                  setMessages(history);
-                }}
-              >
-                {!conversations.length ? <option value="">Current research</option> : null}
-                {conversations.map((conversation) => (
-                  <option key={conversation.id} value={conversation.id}>{conversation.title}</option>
-                ))}
-              </select>
+              <div className="conversation-picker">
+                <select
+                  id="conversation-select"
+                  value={conversationId ?? ""}
+                  onChange={async (event) => {
+                    const selected = event.target.value;
+                    setConversationId(selected || null);
+                    const selectedConversation = conversations.find((conversation) => conversation.id === selected);
+                    setConversationTitleDraft(selectedConversation?.title ?? "");
+                    setEditingConversation(false);
+                    if (!selected) return;
+                    const history = await requestConversationMessages(selected);
+                    setMessages(history);
+                  }}
+                >
+                  {!conversations.length ? <option value="">Current research</option> : null}
+                  {conversations.map((conversation) => (
+                    <option key={conversation.id} value={conversation.id}>
+                      {conversation.title === "Untitled research" ? "New conversation" : conversation.title}
+                    </option>
+                  ))}
+                </select>
+                {activeConversation ? (
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => {
+                      setConversationTitleDraft(activeConversation.title === "Untitled research" ? "" : activeConversation.title);
+                      setEditingConversation((current) => !current);
+                    }}
+                    aria-expanded={editingConversation}
+                    aria-controls="conversation-title-editor"
+                  >
+                    {editingConversation ? "Cancel" : "Rename"}
+                  </button>
+                ) : null}
+              </div>
+              {editingConversation && activeConversation ? (
+                <form id="conversation-title-editor" className="conversation-title-editor" onSubmit={(event) => void handleConversationRename(event)}>
+                  <label htmlFor="conversation-title">Conversation title</label>
+                  <div>
+                    <input
+                      id="conversation-title"
+                      value={conversationTitleDraft}
+                      onChange={(event) => setConversationTitleDraft(event.target.value)}
+                      maxLength={200}
+                      autoFocus
+                    />
+                    <button className="text-button" type="submit" disabled={!conversationTitleDraft.trim() || savingConversationTitle}>
+                      {savingConversationTitle ? "Saving..." : "Save title"}
+                    </button>
+                  </div>
+                </form>
+              ) : null}
               <button
                 className="text-button"
                 type="button"
                 onClick={async () => {
                   try {
-                    const conversation = await createConversation();
+                    const conversation = await createConversation("Untitled research");
                     setConversations((current) => [conversation, ...current]);
                     setConversationId(conversation.id);
+                    setConversationTitleDraft("");
+                    setEditingConversation(false);
                     setMessages([]);
                     setAnswerEvidence(null);
                   } catch {
@@ -1069,16 +1262,16 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   setNotice("The research note could not be saved.");
                 }
               }}
-            />
-          ) : null}
-
-          {connection === "live" && authState === "authenticated" && isAdminUser(user) ? (
-            <AdminPanel
-              users={adminUsers ?? []}
-              loading={adminUsers === null && !adminError}
-              error={adminError}
-              resettingUserId={resettingUserId}
-              onAction={(userToReset, action) => void handleAdminAction(userToReset, action)}
+              onDelete={async (noteId) => {
+                if (!window.confirm("Delete this research note? This cannot be undone.")) return;
+                try {
+                  await deleteNote(noteId);
+                  setNotes((current) => current.filter((note) => note.id !== noteId));
+                  setNotice("Research note deleted.");
+                } catch {
+                  setNotice("The research note could not be deleted.");
+                }
+              }}
             />
           ) : null}
 
@@ -1170,6 +1363,17 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               </div>
             ) : null}
           </section>
+
+          {connection === "live" && authState === "authenticated" && isAdminUser(user) ? (
+            <AdminPanel
+              users={adminUsers ?? []}
+              currentUserEmail={user?.email ?? ""}
+              loading={adminUsers === null && !adminError}
+              error={adminError}
+              resettingUserId={resettingUserId}
+              onAction={(userToReset, action) => void handleAdminAction(userToReset, action)}
+            />
+          ) : null}
         </aside>
       </main>
       {tutorialOpen ? (
@@ -1259,6 +1463,12 @@ function questionTicker(question: string, activeSymbol?: string): string | null 
   return broadResearch ? null : activeSymbol ?? null;
 }
 
+export function conversationTitleFromMessage(message: string): string {
+  const normalized = message.trim().replace(/\s+/g, " ");
+  if (normalized.length <= 80) return normalized;
+  return `${normalized.slice(0, 77).trimEnd()}...`;
+}
+
 function ConnectionBadge({ mode }: { mode: ConnectionMode }) {
   return (
     <span className={`connection-badge ${mode}`} aria-live="polite">
@@ -1321,12 +1531,14 @@ function AccountControl({
 
 function AdminPanel({
   users,
+  currentUserEmail,
   loading,
   error,
   resettingUserId,
   onAction,
 }: {
   users: AdminUser[];
+  currentUserEmail: string;
   loading: boolean;
   error: string;
   resettingUserId: string | null;
@@ -1347,7 +1559,7 @@ function AdminPanel({
       {!loading && !error && users.length === 0 ? <p className="admin-status">No users found.</p> : null}
       {users.length > 0 ? (
         <ul className="admin-user-list">
-          {users.map((user) => (
+          {users.filter((user) => user.email?.trim().toLowerCase() !== currentUserEmail.trim().toLowerCase()).map((user) => (
             <li key={user.id}>
               <div>
                 <strong>{user.name || "Unnamed user"}</strong>
@@ -1418,6 +1630,7 @@ function ResearchNotesPanel({
   onTitleChange,
   onBodyChange,
   onSave,
+  onDelete,
 }: {
   notes: ResearchNote[];
   title: string;
@@ -1425,6 +1638,7 @@ function ResearchNotesPanel({
   onTitleChange: (value: string) => void;
   onBodyChange: (value: string) => void;
   onSave: () => Promise<void>;
+  onDelete: (noteId: string) => Promise<void>;
 }) {
   return (
     <section className="notes-panel" aria-labelledby="notes-title">
@@ -1438,7 +1652,17 @@ function ResearchNotesPanel({
         <textarea id="note-body" rows={3} value={body} onChange={(event) => onBodyChange(event.target.value)} maxLength={4000} />
         <button className="text-button" type="submit" disabled={!title.trim() || !body.trim()}>Save note</button>
       </form>
-      {notes.length ? <ul className="notes-list">{notes.slice(0, 5).map((note) => <li key={note.id}><strong>{note.title}</strong><span>{note.body}</span></li>)}</ul> : <p className="source-explainer">Capture a thesis or question beside the evidence you are reviewing.</p>}
+      {notes.length ? <ul className="notes-list">{notes.slice(0, 5).map((note) => (
+        <li key={note.id}>
+          <div className="note-heading">
+            <strong>{note.title}</strong>
+            <button className="text-button note-delete" type="button" onClick={() => void onDelete(note.id)} aria-label={`Delete note ${note.title}`}>
+              Delete
+            </button>
+          </div>
+          <span>{note.body}</span>
+        </li>
+      ))}</ul> : <p className="source-explainer">Capture a thesis or question beside the evidence you are reviewing.</p>}
     </section>
   );
 }
@@ -1587,6 +1811,7 @@ function EvidenceMatrix({
   sources: ResearchSource[];
   clock: number;
 }) {
+  const indexedCount = sources.length || stock.indexedDocuments || 0;
   const fundamentals = sources.filter((source) => source.kind === "Fundamentals").length;
   const news = sources.filter((source) => source.kind === "News").length;
   const filings = sources.filter((source) => source.kind === "Exchange filing").length;
@@ -1597,7 +1822,7 @@ function EvidenceMatrix({
           <p className="eyebrow">Coverage</p>
           <h2 id="coverage-title">Evidence matrix</h2>
         </div>
-        <span className="count-label">{stock.indexedDocuments}</span>
+        <span className="count-label">{indexedCount}</span>
       </div>
       <dl>
         <div><dt>Fundamentals</dt><dd>{fundamentals ? "Available" : "Missing"}</dd></div>
