@@ -113,9 +113,9 @@ variable "database_max_allocated_storage" {
 }
 
 variable "database_backup_retention_days" {
-  description = "Number of days automated RDS backups are retained; production defaults to seven days."
+  description = "Number of days automated RDS backups are retained. Free Tier accounts may be limited to one day."
   type        = number
-  default     = 7
+  default     = 1
 
   validation {
     condition     = var.database_backup_retention_days >= 1 && var.database_backup_retention_days <= 35

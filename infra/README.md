@@ -115,7 +115,7 @@ Important production variables:
 | `certificate_arn` | required | Enables HTTPS on the ALB and redirects HTTP |
 | `public_base_url` | required | Canonical HTTPS origin mapped to the ALB and used for OAuth |
 | `enable_nat_gateway` | `false` | Places ECS tasks in private subnets; adds a fixed NAT charge |
-| `database_backup_retention_days` | `7` | Automated RDS backup retention in days; AWS supports 1-35 |
+| `database_backup_retention_days` | `1` | Automated RDS backup retention; Free Tier accounts may be limited to one day |
 | `database_deletion_protection` | `true` | Prevents accidental RDS deletion; disable only for an intentional teardown |
 | `image_tag` | `latest` | CI always overrides with the immutable commit SHA |
 | `ingestion_schedule_expression` | `rate(6 hours)` | Scheduled refresh cadence |
@@ -144,7 +144,7 @@ Secrets Manager workflow. Keep AWS budgets/alerts enabled because ALB, WAF,
 Fargate, RDS, public IPv4 addresses, NAT (when enabled), and data transfer are
 billable.
 
-RDS keeps the existing instance identifier and defaults to seven days of automated
+RDS keeps the existing instance identifier and defaults to one day of automated
 backups, deletion protection, and a final snapshot named
 `<project_name>-<environment>-final`. These settings are safe to apply to an
 existing instance and do not request replacement. A final snapshot is created
