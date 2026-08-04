@@ -110,6 +110,65 @@
   font-weight: 700;
 }
 
+.evidence-matrix {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+
+.evidence-matrix dl {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0 0;
+}
+
+.evidence-matrix dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.evidence-matrix dt,
+.evidence-matrix dd {
+  margin: 0;
+}
+
+.evidence-matrix dd {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.evidence-timeline {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.evidence-timeline > div {
+  display: grid;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--accent);
+}
+
+.evidence-timeline strong,
+.evidence-timeline small {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  text-transform: uppercase;
+}
+
+.evidence-timeline span:not(.eyebrow) {
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
 .message-thread {
   display: grid;
   gap: 22px;

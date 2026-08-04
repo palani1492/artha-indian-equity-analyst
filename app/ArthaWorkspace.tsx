@@ -900,6 +900,10 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             )}
           </section>
 
+          {activeStock ? (
+            <EvidenceMatrix stock={activeStock} sources={tickerSources} clock={clock} />
+          ) : null}
+
           <section className="sources-panel" aria-labelledby="sources-title">
             <button
               className="sources-toggle"
@@ -1290,6 +1294,48 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       <strong>{title}</strong>
       <p>{body}</p>
     </div>
+  );
+}
+
+function EvidenceMatrix({
+  stock,
+  sources,
+  clock,
+}: {
+  stock: Stock;
+  sources: ResearchSource[];
+  clock: number;
+}) {
+  const fundamentals = sources.filter((source) => source.kind === "Fundamentals").length;
+  const news = sources.filter((source) => source.kind === "News").length;
+  const filings = sources.filter((source) => source.kind === "Exchange filing").length;
+  return (
+    <section className="evidence-matrix" aria-labelledby="coverage-title">
+      <div className="section-heading-row">
+        <div>
+          <p className="eyebrow">Coverage</p>
+          <h2 id="coverage-title">Evidence matrix</h2>
+        </div>
+        <span className="count-label">{stock.indexedDocuments}</span>
+      </div>
+      <dl>
+        <div><dt>Fundamentals</dt><dd>{fundamentals ? "Available" : "Missing"}</dd></div>
+        <div><dt>Recent news</dt><dd>{news} indexed</dd></div>
+        <div><dt>Filings</dt><dd>{filings ? `${filings} indexed` : "Missing"}</dd></div>
+        <div><dt>Sentiment</dt><dd>{stock.tone}</dd></div>
+        <div><dt>Last refresh</dt><dd>{formatRelativeTime(stock.updatedAt, clock) ?? stock.updatedLabel}</dd></div>
+      </dl>
+      <div className="evidence-timeline" aria-label={`${stock.symbol} research timeline`}>
+        <span className="eyebrow">Recent evidence</span>
+        {sources.slice(0, 3).map((source) => (
+          <div key={`timeline-${source.id}`}>
+            <strong>{source.kind}</strong>
+            <span>{source.title}</span>
+            <small>{formatRelativeTime(source.publishedAt, clock) ?? source.dateLabel}</small>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
