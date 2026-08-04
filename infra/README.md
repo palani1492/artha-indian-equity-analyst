@@ -1,6 +1,6 @@
 # AWS infrastructure
 
-This stack deploys the Sentellent analyst as two independently scalable ECS
+This stack deploys the Artha analyst as two independently scalable ECS
 Fargate services behind one Application Load Balancer. `/api/*`, `/health`,
 `/docs*`, and `/openapi.json` route to FastAPI; all other paths route to the
 frontend. PostgreSQL 16 runs in isolated subnets on RDS and stores pgvector data.
