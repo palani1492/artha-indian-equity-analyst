@@ -60,6 +60,41 @@ def test_ticker_search_filters_exchange_and_matches_company_name(client) -> None
     assert any(item["ticker"] == "HDFCBANK" for item in suggestions)
 
 
+@pytest.mark.parametrize(
+    ("query", "ticker", "company_name"),
+    (
+        ("mahindra", "M&M", "Mahindra & Mahindra"),
+        ("m&m", "M&M", "Mahindra & Mahindra"),
+        ("infosys", "INFY", "Infosys"),
+        ("tata consultancy services", "TCS", "Tata Consultancy Services"),
+        ("hdfc bank", "HDFCBANK", "HDFC Bank"),
+        ("state bank of india", "SBIN", "State Bank of India"),
+        ("reliance industries", "RELIANCE", "Reliance Industries"),
+    ),
+)
+def test_ticker_search_supports_company_names_and_aliases(
+    client, query: str, ticker: str, company_name: str
+) -> None:
+    response = client.get("/api/v1/tickers/search", params={"q": query})
+
+    assert response.status_code == 200
+    suggestions = response.json()["suggestions"]
+    assert suggestions[0]["ticker"] == ticker
+    assert suggestions[0]["company_name"] == company_name
+    assert all("aliases" not in suggestion for suggestion in suggestions)
+
+
+def test_ticker_search_ranks_exact_ticker_and_field_prefix_before_substrings(
+    client,
+) -> None:
+    response = client.get("/api/v1/tickers/search", params={"q": "bank"})
+
+    assert response.status_code == 200
+    suggestions = response.json()["suggestions"]
+    assert suggestions[0]["ticker"] == "BANKBARODA"
+    assert suggestions[0]["company_name"] == "Bank of Baroda"
+
+
 def test_ticker_search_rejects_unknown_exchange(client) -> None:
     response = client.get(
         "/api/v1/tickers/search", params={"q": "it", "exchange": "NYSE"}
