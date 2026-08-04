@@ -7,8 +7,11 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from app.domain.models import (
+    ConversationMessage,
     DocumentKind,
     InvestorPersona,
+    ResearchConversation,
+    ResearchNote,
     SourceDocument,
     Stock,
     canonical_source_url,
@@ -34,6 +37,9 @@ class InMemoryResearchRepository:
         self._follows: dict[str, set[str]] = defaultdict(set)
         self._sessions: dict[str, tuple[str, float]] = {}
         self._users: dict[str, dict[str, str | None]] = {}
+        self._conversations: dict[str, ResearchConversation] = {}
+        self._messages: dict[str, list[ConversationMessage]] = defaultdict(list)
+        self._notes: dict[str, ResearchNote] = {}
         self._ticker_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._write_lock = asyncio.Lock()
 
@@ -324,6 +330,80 @@ class InMemoryResearchRepository:
             self._sessions = {
                 key: value for key, value in self._sessions.items() if key != session_id
             }
+
+    async def create_conversation(self, conversation: ResearchConversation) -> None:
+        async with self._write_lock:
+            self._conversations = {
+                **self._conversations,
+                conversation.id: conversation,
+            }
+
+    async def list_conversations(self, user_id: str) -> tuple[ResearchConversation, ...]:
+        return tuple(
+            sorted(
+                (item for item in self._conversations.values() if item.user_id == user_id),
+                key=lambda item: (item.updated_at, item.id),
+                reverse=True,
+            )
+        )
+
+    async def get_conversation(
+        self, user_id: str, conversation_id: str
+    ) -> ResearchConversation | None:
+        conversation = self._conversations.get(conversation_id)
+        return conversation if conversation and conversation.user_id == user_id else None
+
+    async def add_conversation_message(self, message: ConversationMessage) -> None:
+        async with self._write_lock:
+            self._messages = {
+                **self._messages,
+                message.conversation_id: [
+                    *self._messages.get(message.conversation_id, []), message
+                ],
+            }
+            conversation = self._conversations.get(message.conversation_id)
+            if conversation:
+                self._conversations = {
+                    **self._conversations,
+                    conversation.id: conversation.model_copy(update={"updated_at": message.created_at}),
+                }
+
+    async def list_conversation_messages(
+        self, user_id: str, conversation_id: str
+    ) -> tuple[ConversationMessage, ...]:
+        if await self.get_conversation(user_id, conversation_id) is None:
+            return ()
+        return tuple(self._messages.get(conversation_id, ()))
+
+    async def create_note(self, note: ResearchNote) -> None:
+        async with self._write_lock:
+            self._notes = {**self._notes, note.id: note}
+
+    async def list_notes(self, user_id: str) -> tuple[ResearchNote, ...]:
+        return tuple(
+            sorted(
+                (item for item in self._notes.values() if item.user_id == user_id),
+                key=lambda item: (item.updated_at, item.id),
+                reverse=True,
+            )
+        )
+
+    async def get_note(self, user_id: str, note_id: str) -> ResearchNote | None:
+        note = self._notes.get(note_id)
+        return note if note and note.user_id == user_id else None
+
+    async def update_note(self, note: ResearchNote) -> None:
+        async with self._write_lock:
+            if note.id in self._notes and self._notes[note.id].user_id == note.user_id:
+                self._notes = {**self._notes, note.id: note}
+
+    async def delete_note(self, user_id: str, note_id: str) -> bool:
+        async with self._write_lock:
+            note = self._notes.get(note_id)
+            if note is None or note.user_id != user_id:
+                return False
+            self._notes = {key: value for key, value in self._notes.items() if key != note_id}
+            return True
 
     @staticmethod
     def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:

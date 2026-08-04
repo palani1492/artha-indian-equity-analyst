@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import (
     Depends,
@@ -22,8 +24,12 @@ from app.auth import OAUTH_STATE_COOKIE
 from app.container import Container, build_container
 from app.domain.models import (
     ChatResult,
+    Citation,
+    ConversationMessage,
     IngestionResult,
     InvestorPersona,
+    ResearchConversation,
+    ResearchNote,
     RiskTolerance,
     SourceDocument,
     Stock,
@@ -35,6 +41,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     ticker: str | None = None
     tickers: tuple[str, ...] = Field(default=(), max_length=10)
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @field_validator("message")
     @classmethod
@@ -102,6 +109,35 @@ class OAuthConfigResponse(BaseModel):
     client_id: str | None
     redirect_uri: str
     scopes: tuple[str, ...] = ("openid", "email", "profile")
+
+
+class ConversationCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value: str) -> str:
+        return value.strip()
+
+
+class NoteRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=4000)
+    scope_tickers: tuple[str, ...] = Field(default=(), max_length=10)
+    citations: tuple[Citation, ...] = Field(default=(), max_length=20)
+
+    @field_validator("title", "body")
+    @classmethod
+    def clean_note_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("note text cannot be blank")
+        return cleaned
+
+    @field_validator("scope_tickers")
+    @classmethod
+    def clean_note_scope(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(normalize_ticker(value)[0] for value in values))
 
 
 def _container(request: Request) -> Container:
@@ -220,6 +256,102 @@ def create_app(container: Container | None = None) -> FastAPI:
     async def me(user_id: Annotated[str, Depends(_user_id)]) -> dict[str, str | None]:
         user = await dependencies.repository.get_user(user_id)
         return user or {"id": user_id, "email": user_id, "name": None, "picture": None}
+
+    @app.get("/api/v1/conversations", response_model=tuple[ResearchConversation, ...])
+    async def conversations(
+        user_id: Annotated[str, Depends(_user_id)],
+    ) -> tuple[ResearchConversation, ...]:
+        return await dependencies.repository.list_conversations(user_id)
+
+    @app.post(
+        "/api/v1/conversations",
+        response_model=ResearchConversation,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_conversation(
+        payload: ConversationCreateRequest,
+        user_id: Annotated[str, Depends(_user_id)],
+    ) -> ResearchConversation:
+        now = datetime.now(UTC)
+        conversation = ResearchConversation(
+            id=uuid4().hex,
+            user_id=user_id,
+            title=payload.title,
+            created_at=now,
+            updated_at=now,
+        )
+        await dependencies.repository.create_conversation(conversation)
+        return conversation
+
+    @app.get(
+        "/api/v1/conversations/{conversation_id}/messages",
+        response_model=tuple[ConversationMessage, ...],
+    )
+    async def conversation_messages(
+        conversation_id: Annotated[str, Path(min_length=1, max_length=64)],
+        user_id: Annotated[str, Depends(_user_id)],
+    ) -> tuple[ConversationMessage, ...]:
+        if (
+            await dependencies.repository.get_conversation(user_id, conversation_id)
+            is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
+            )
+        return await dependencies.repository.list_conversation_messages(user_id, conversation_id)
+
+    @app.get("/api/v1/notes", response_model=tuple[ResearchNote, ...])
+    async def notes(user_id: Annotated[str, Depends(_user_id)]) -> tuple[ResearchNote, ...]:
+        return await dependencies.repository.list_notes(user_id)
+
+    @app.post(
+        "/api/v1/notes", response_model=ResearchNote, status_code=status.HTTP_201_CREATED
+    )
+    async def create_note(
+        payload: NoteRequest, user_id: Annotated[str, Depends(_user_id)]
+    ) -> ResearchNote:
+        now = datetime.now(UTC)
+        note = ResearchNote(
+            id=uuid4().hex,
+            user_id=user_id,
+            created_at=now,
+            updated_at=now,
+            **payload.model_dump(),
+        )
+        await dependencies.repository.create_note(note)
+        return note
+
+    @app.patch("/api/v1/notes/{note_id}", response_model=ResearchNote)
+    async def update_note(
+        note_id: Annotated[str, Path(min_length=1, max_length=64)],
+        payload: NoteRequest,
+        user_id: Annotated[str, Depends(_user_id)],
+    ) -> ResearchNote:
+        current = await dependencies.repository.get_note(user_id, note_id)
+        if current is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Note not found"
+            )
+        note = ResearchNote(
+            id=current.id,
+            user_id=user_id,
+            created_at=current.created_at,
+            updated_at=datetime.now(UTC),
+            **payload.model_dump(),
+        )
+        await dependencies.repository.update_note(note)
+        return note
+
+    @app.delete("/api/v1/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_note(
+        note_id: Annotated[str, Path(min_length=1, max_length=64)],
+        user_id: Annotated[str, Depends(_user_id)],
+    ) -> Response:
+        if not await dependencies.repository.delete_note(user_id, note_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Note not found"
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get("/api/v1/admin/users", response_model=tuple[dict[str, str | None], ...])
     async def admin_users(
@@ -426,6 +558,35 @@ def create_app(container: Container | None = None) -> FastAPI:
         return await dependencies.repository.list_documents(normalized)
 
     async def chat(payload: ChatRequest, user_id: str) -> ChatResult:
+        conversation_id = payload.conversation_id
+        if conversation_id is None:
+            now = datetime.now(UTC)
+            conversation = ResearchConversation(
+                id=uuid4().hex,
+                user_id=user_id,
+                title=payload.message[:200],
+                created_at=now,
+                updated_at=now,
+            )
+            await dependencies.repository.create_conversation(conversation)
+            conversation_id = conversation.id
+        elif (
+            await dependencies.repository.get_conversation(user_id, conversation_id)
+            is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
+            )
+        await dependencies.repository.add_conversation_message(
+            ConversationMessage(
+                id=uuid4().hex,
+                conversation_id=conversation_id,
+                role="user",
+                text=payload.message,
+                scope_tickers=payload.tickers or ((payload.ticker,) if payload.ticker else ()),
+                created_at=datetime.now(UTC),
+            )
+        )
         # A user can arrive with an existing follow after a deploy or a failed
         # background refresh. Ensure every requested/followed ticker has at
         # least one indexed snapshot before retrieval, while keeping upstream
@@ -448,12 +609,25 @@ def create_app(container: Container | None = None) -> FastAPI:
                 ValueError,
             ):
                 continue
-        return await dependencies.agent.chat(
+        result = await dependencies.agent.chat(
             user_id,
             payload.message,
             payload.ticker,
             scope_tickers=payload.tickers,
         )
+        await dependencies.repository.add_conversation_message(
+            ConversationMessage(
+                id=uuid4().hex,
+                conversation_id=conversation_id,
+                role="assistant",
+                text=result.answer,
+                title=result.title,
+                scope_tickers=payload.tickers or ((payload.ticker,) if payload.ticker else ()),
+                citations=result.citations,
+                created_at=datetime.now(UTC),
+            )
+        )
+        return result.model_copy(update={"conversation_id": conversation_id})
 
     @app.post("/api/v1/chat", response_model=ChatResult)
     async def chat_v1(

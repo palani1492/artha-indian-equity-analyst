@@ -5,6 +5,8 @@ import {
   type Citation,
   type Persona,
   type ResearchSource,
+  type ResearchConversation,
+  type ResearchNote,
   type Stock,
 } from "./artha-data";
 
@@ -112,6 +114,100 @@ export async function requestPersonaUpdate(persona: Persona): Promise<unknown> {
 
 export async function requestLogout(): Promise<void> {
   await requestJson("/api/v1/auth/logout", { method: "POST" });
+}
+
+export async function requestConversations(): Promise<ResearchConversation[]> {
+  const payload = await requestJson("/api/v1/conversations");
+  if (!Array.isArray(payload)) return [];
+  return payload.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string") return [];
+    return [{
+      id: item.id,
+      title: String(item.title ?? "Research conversation"),
+      createdAt: String(item.created_at ?? ""),
+      updatedAt: String(item.updated_at ?? ""),
+    }];
+  });
+}
+
+export async function createConversation(title = "New research conversation"): Promise<ResearchConversation> {
+  const value = await requestJson("/api/v1/conversations", {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+  if (!isRecord(value) || typeof value.id !== "string") throw new Error("Invalid conversation response");
+  return {
+    id: value.id,
+    title: String(value.title ?? title),
+    createdAt: String(value.created_at ?? ""),
+    updatedAt: String(value.updated_at ?? ""),
+  };
+}
+
+export async function requestConversationMessages(conversationId: string): Promise<ChatMessage[]> {
+  const payload = await requestJson(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`);
+  if (!Array.isArray(payload)) return [];
+  return payload.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    if (item.role === "user" && typeof item.text === "string") {
+      return [{
+        id: String(item.id ?? crypto.randomUUID()),
+        role: "user",
+        text: item.text,
+        createdLabel: "Earlier",
+        createdAt: typeof item.created_at === "string" ? item.created_at : undefined,
+      }];
+    }
+    const message = apiAnswer(item);
+    return message ? [message] : [];
+  });
+}
+
+export async function requestNotes(): Promise<ResearchNote[]> {
+  const payload = await requestJson("/api/v1/notes");
+  if (!Array.isArray(payload)) return [];
+  return payload.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string") return [];
+    return [{
+      id: item.id,
+      title: String(item.title ?? "Research note"),
+      body: String(item.body ?? ""),
+      scopeTickers: stringList(item.scope_tickers, []),
+      citations: [],
+      updatedAt: String(item.updated_at ?? ""),
+    }];
+  });
+}
+
+export async function createNote(payload: {
+  title: string;
+  body: string;
+  scopeTickers: string[];
+  citations: Citation[];
+}): Promise<ResearchNote> {
+  const value = await requestJson("/api/v1/notes", {
+    method: "POST",
+    body: JSON.stringify({
+      title: payload.title,
+      body: payload.body,
+      scope_tickers: payload.scopeTickers,
+      citations: payload.citations.map((citation, index) => ({
+        index: Number(citation.label) || index + 1,
+        document_id: citation.sourceId,
+        title: citation.source?.title ?? citation.sourceId,
+        url: citation.source?.url ?? "https://example.invalid/source",
+      })),
+    }),
+  });
+  if (!isRecord(value) || typeof value.id !== "string") throw new Error("Invalid note response");
+  return {
+    id: value.id,
+    title: String(value.title),
+    body: String(value.body),
+    scopeTickers: stringList(value.scope_tickers, []),
+    citations: [],
+    updatedAt: String(value.updated_at ?? ""),
+  };
 }
 
 export async function requestUnfollow(

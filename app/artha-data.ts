@@ -51,6 +51,22 @@ export type ChatMessage = {
   createdAt?: string;
 };
 
+export type ResearchConversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ResearchNote = {
+  id: string;
+  title: string;
+  body: string;
+  scopeTickers: string[];
+  citations: Citation[];
+  updatedAt: string;
+};
+
 export const DEMO_STOCKS: Stock[] = [
   {
     symbol: "TCS",

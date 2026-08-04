@@ -20,6 +20,11 @@ service_max_count           = 2
 ingestion_schedule_expression = "rate(6 hours)"
 oauth_callback_rate_limit      = 100
 
+# Server-side admin allowlist. Do not expose this as frontend configuration.
+backend_environment = {
+  ADMIN_EMAILS = "admin@example.invalid"
+}
+
 tags = {
   Owner = "your-name"
 }

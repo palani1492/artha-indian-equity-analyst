@@ -3,7 +3,14 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
-from app.domain.models import InvestorPersona, SourceDocument, Stock
+from app.domain.models import (
+    ConversationMessage,
+    InvestorPersona,
+    ResearchConversation,
+    ResearchNote,
+    SourceDocument,
+    Stock,
+)
 
 
 class ResearchRepository(Protocol):
@@ -76,3 +83,27 @@ class ResearchRepository(Protocol):
     async def get_session_user(self, session_id: str, now: float) -> str | None: ...
 
     async def delete_session(self, session_id: str) -> None: ...
+
+    async def create_conversation(self, conversation: ResearchConversation) -> None: ...
+
+    async def list_conversations(self, user_id: str) -> tuple[ResearchConversation, ...]: ...
+
+    async def get_conversation(
+        self, user_id: str, conversation_id: str
+    ) -> ResearchConversation | None: ...
+
+    async def add_conversation_message(self, message: ConversationMessage) -> None: ...
+
+    async def list_conversation_messages(
+        self, user_id: str, conversation_id: str
+    ) -> tuple[ConversationMessage, ...]: ...
+
+    async def create_note(self, note: ResearchNote) -> None: ...
+
+    async def list_notes(self, user_id: str) -> tuple[ResearchNote, ...]: ...
+
+    async def get_note(self, user_id: str, note_id: str) -> ResearchNote | None: ...
+
+    async def update_note(self, note: ResearchNote) -> None: ...
+
+    async def delete_note(self, user_id: str, note_id: str) -> bool: ...
