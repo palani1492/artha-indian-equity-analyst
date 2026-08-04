@@ -34,6 +34,7 @@ jobs:
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_image_tag: ${{ github.sha }}
       TF_VAR_ai_provider: ${{ vars.AI_PROVIDER || 'local' }}
+      TF_VAR_backend_environment: '{"ADMIN_EMAILS":"${{ vars.ADMIN_EMAILS }}"}'
       TF_VAR_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
       TF_VAR_public_base_url: ${{ vars.PUBLIC_BASE_URL }}
     steps:
