@@ -4,7 +4,16 @@ from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
@@ -105,6 +114,25 @@ async def _user_id(
     return await container.auth.current_user_id(request)
 
 
+async def _admin_user(
+    request: Request, container: Annotated[Container, Depends(_container)]
+) -> dict[str, str | None]:
+    user_id = await container.auth.current_user_id(request)
+    user = await container.repository.get_user(user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticated user record required",
+        )
+    email = user.get("email")
+    if not email or email.casefold() not in container.settings.admin_emails:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access required",
+        )
+    return user
+
+
 def create_app(container: Container | None = None) -> FastAPI:
     dependencies = container or build_container()
 
@@ -192,6 +220,23 @@ def create_app(container: Container | None = None) -> FastAPI:
     async def me(user_id: Annotated[str, Depends(_user_id)]) -> dict[str, str | None]:
         user = await dependencies.repository.get_user(user_id)
         return user or {"id": user_id, "email": user_id, "name": None, "picture": None}
+
+    @app.get("/api/v1/admin/users", response_model=tuple[dict[str, str | None], ...])
+    async def admin_users(
+        _: Annotated[dict[str, str | None], Depends(_admin_user)],
+    ) -> tuple[dict[str, str | None], ...]:
+        return await dependencies.repository.list_users()
+
+    @app.post("/api/v1/admin/users/{user_id}/reset-profile")
+    async def admin_reset_profile(
+        user_id: Annotated[str, Path(min_length=1, max_length=320, pattern=r"^\S+$")],
+        _: Annotated[dict[str, str | None], Depends(_admin_user)],
+    ) -> dict[str, str | bool]:
+        if not await dependencies.repository.reset_user_profile(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
+        return {"id": user_id, "reset": True}
 
     @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
     async def logout(request: Request, response: Response) -> Response:

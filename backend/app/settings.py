@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import cached_property
 from typing import Annotated
 from urllib.parse import quote_plus
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
     auth_mode: str = "google"
     demo_user_id: str | None = None
     cors_origins: Annotated[tuple[str, ...], NoDecode] = ("http://localhost:3000",)
+    admin_emails: Annotated[tuple[str, ...], NoDecode] = ()
 
     database_url: str | None = None
     db_host: str | None = None
@@ -92,6 +94,26 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.lstrip().startswith("["):
             return tuple(item.strip() for item in value.split(",") if item.strip())
         return value
+
+    @field_validator("admin_emails", mode="before")
+    @classmethod
+    def parse_admin_emails(cls, value: object) -> object:
+        if value is None or value == "":
+            return ()
+        values = (
+            tuple(item.strip() for item in value.split(",") if item.strip())
+            if isinstance(value, str)
+            else value
+        )
+        if not isinstance(values, (tuple, list, set)):
+            raise TypeError("ADMIN_EMAILS must be a comma-separated email list")
+        normalized = tuple(str(item).strip().casefold() for item in values)
+        if any(
+            len(email) > 320 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
+            for email in normalized
+        ):
+            raise ValueError("ADMIN_EMAILS contains an invalid email address")
+        return tuple(dict.fromkeys(normalized))
 
     @field_validator("rss_feeds", mode="before")
     @classmethod

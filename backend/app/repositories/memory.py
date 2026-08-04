@@ -288,6 +288,31 @@ class InMemoryResearchRepository:
         user = self._users.get(user_id)
         return {**user, "id": user_id} if user else None
 
+    async def list_users(self) -> tuple[dict[str, str | None], ...]:
+        return tuple(
+            {**user, "id": user_id}
+            for user_id, user in sorted(
+                self._users.items(), key=lambda item: (item[1]["email"] or "", item[0])
+            )
+        )
+
+    async def reset_user_profile(self, user_id: str) -> bool:
+        if user_id not in self._users:
+            return False
+        async with self._write_lock:
+            self._personas = {
+                key: persona for key, persona in self._personas.items() if key != user_id
+            }
+            self._persona_embeddings = {
+                key: embedding
+                for key, embedding in self._persona_embeddings.items()
+                if key != user_id
+            }
+            self._follows = {
+                key: tickers for key, tickers in self._follows.items() if key != user_id
+            }
+        return True
+
     async def get_session_user(self, session_id: str, now: float) -> str | None:
         session = self._sessions.get(session_id)
         if session is None or session[1] <= now:
