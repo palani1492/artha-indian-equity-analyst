@@ -39,7 +39,9 @@ def test_parser_does_not_treat_within_as_the_it_sector() -> None:
 
 
 def test_filter_and_allocator_enforce_sector_total_budget_and_maximum() -> None:
-    constraints = parse_complex_question("find 1 to 3 technology stocks within INR 10000")
+    constraints = parse_complex_question(
+        "find 1 to 3 technology stocks within INR 10000"
+    )
     assert constraints is not None
     candidates = [
         stock("TCS", "4125", "IT"),
@@ -55,8 +57,66 @@ def test_filter_and_allocator_enforce_sector_total_budget_and_maximum() -> None:
     assert allocation.shortfall is None
 
 
+def test_allocator_finds_combination_greedy_selection_would_miss() -> None:
+    constraints = parse_complex_question(
+        "find 2 to 2 technology stocks within INR 1000"
+    )
+    assert constraints is not None
+
+    allocation = allocate_budget(
+        [stock("TOP", "600"), stock("NEXT", "500"), stock("VALUE", "500")],
+        constraints,
+    )
+
+    assert [item.ticker for item in allocation.selected] == ["NEXT", "VALUE"]
+    assert allocation.total_cost == Decimal(1000)
+
+
+def test_allocator_uses_exact_budget_and_preserves_rank_order() -> None:
+    constraints = parse_complex_question(
+        "find 2 to 3 technology stocks within INR 1000"
+    )
+    assert constraints is not None
+
+    allocation = allocate_budget(
+        [stock("FIRST", "400"), stock("SECOND", "600"), stock("THIRD", "200")],
+        constraints,
+    )
+
+    assert [item.ticker for item in allocation.selected] == ["FIRST", "SECOND"]
+    assert allocation.total_cost == Decimal(1000)
+
+
+def test_filter_excludes_other_sectors_and_over_budget_candidates() -> None:
+    constraints = parse_complex_question("find 1 to 3 banking stocks within INR 1000")
+    assert constraints is not None
+
+    eligible = filter_candidates(
+        [
+            stock("BANK", "900", "Banking"),
+            stock("TECH", "100", "IT"),
+            stock("EXPENSIVE", "1001", "Banking"),
+        ],
+        constraints,
+    )
+
+    assert [item.ticker for item in eligible] == ["BANK"]
+
+
+def test_profile_intent_is_preserved_with_sector_constraints() -> None:
+    constraints = parse_complex_question(
+        "find 1 to 2 banking stocks within INR 1000 that fit my investor profile"
+    )
+
+    assert constraints is not None
+    assert constraints.sector == "Banking"
+    assert constraints.profile_intent is True
+
+
 def test_allocator_reports_when_minimum_cannot_be_met() -> None:
-    constraints = parse_complex_question("find 3 to 5 technology stocks within INR 1000")
+    constraints = parse_complex_question(
+        "find 3 to 5 technology stocks within INR 1000"
+    )
     assert constraints is not None
 
     allocation = allocate_budget(
@@ -65,4 +125,7 @@ def test_allocator_reports_when_minimum_cannot_be_met() -> None:
     )
 
     assert allocation.selected == ()
-    assert allocation.shortfall == "Only 0 of the requested minimum 3 stocks fit the INR 1000 total budget."
+    assert (
+        allocation.shortfall
+        == "Only 0 of the requested minimum 3 stocks fit the INR 1000 total budget."
+    )
