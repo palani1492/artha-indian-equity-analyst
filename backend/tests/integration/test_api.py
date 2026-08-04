@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api import create_app
 from app.container import build_container
+from app.domain.models import InvestorPersona
 from app.settings import Settings
 
 
@@ -273,6 +275,56 @@ def test_persona_patch_validates_and_updates_fields(client, auth_headers) -> Non
 def test_invalid_ticker_is_rejected_at_boundary(client, auth_headers) -> None:
     response = client.post("/api/v1/stocks/INVALID%3BDROP/follow", headers=auth_headers)
     assert response.status_code == 422
+
+
+def test_admin_endpoints_authorize_only_allowlisted_persisted_user(container) -> None:
+    container.settings.admin_emails = ("admin@example.com",)
+    asyncio.run(
+        container.repository.upsert_user("admin-id", "admin@example.com", "Admin", None)
+    )
+    asyncio.run(container.repository.upsert_user("user-id", "user@example.com", "User", None))
+    asyncio.run(container.repository.follow_stock("user-id", "TCS"))
+    asyncio.run(
+        container.repository.save_persona(
+            InvestorPersona(user_id="user-id", style="Reset me"), (1.0,)
+        )
+    )
+    with TestClient(create_app(container)) as admin_client:
+        assert admin_client.get(
+            "/api/v1/admin/users", headers={"X-User-ID": "user-id"}
+        ).status_code == 403
+        listed = admin_client.get(
+            "/api/v1/admin/users", headers={"X-User-ID": "admin-id"}
+        )
+        assert listed.status_code == 200
+        assert {user["id"] for user in listed.json()} == {"admin-id", "user-id"}
+
+        reset = admin_client.post(
+            "/api/v1/admin/users/user-id/reset-profile",
+            headers={"X-User-ID": "admin-id"},
+        )
+        assert reset.status_code == 200
+        assert asyncio.run(container.repository.list_followed_tickers("user-id")) == ()
+        assert asyncio.run(container.repository.get_persona("user-id")).style != "Reset me"
+
+
+def test_admin_endpoints_do_not_trust_frontend_email_and_validate_target(container) -> None:
+    container.settings.admin_emails = ("admin@example.com",)
+    asyncio.run(
+        container.repository.upsert_user("admin-id", "admin@example.com", "Admin", None)
+    )
+    with TestClient(create_app(container)) as admin_client:
+        assert admin_client.get(
+            "/api/v1/admin/users", headers={"X-User-ID": "admin@example.com"}
+        ).status_code == 401
+        assert admin_client.post(
+            "/api/v1/admin/users/missing/reset-profile",
+            headers={"X-User-ID": "admin-id"},
+        ).status_code == 404
+        assert admin_client.post(
+            "/api/v1/admin/users/%20/reset-profile",
+            headers={"X-User-ID": "admin-id"},
+        ).status_code == 422
 
 
 def test_google_oauth_config_is_env_driven(client) -> None:

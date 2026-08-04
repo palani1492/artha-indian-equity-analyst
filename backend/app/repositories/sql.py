@@ -436,6 +436,30 @@ class SqlAlchemyResearchRepository:
                 "picture": row.picture,
             }
 
+    async def list_users(self) -> tuple[dict[str, str | None], ...]:
+        async with self._sessions() as session:
+            rows = (
+                await session.scalars(select(UserRow).order_by(UserRow.email, UserRow.id))
+            ).all()
+            return tuple(
+                {
+                    "id": row.id,
+                    "email": row.email,
+                    "name": row.name,
+                    "picture": row.picture,
+                }
+                for row in rows
+            )
+
+    async def reset_user_profile(self, user_id: str) -> bool:
+        async with self._sessions.begin() as session:
+            user = await session.get(UserRow, user_id)
+            if user is None:
+                return False
+            await session.execute(delete(PersonaRow).where(PersonaRow.user_id == user_id))
+            await session.execute(delete(FollowRow).where(FollowRow.user_id == user_id))
+            return True
+
     async def create_session(
         self, session_id: str, user_id: str, expires_at: float
     ) -> None:

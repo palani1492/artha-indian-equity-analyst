@@ -133,6 +133,19 @@ def test_blank_optional_session_secret_is_treated_as_unconfigured() -> None:
     assert Settings(session_secret="").session_secret is None
 
 
+def test_admin_email_allowlist_is_normalized_and_empty_by_default() -> None:
+    assert Settings(_env_file=None).admin_emails == ()
+    assert Settings(
+        _env_file=None,
+        admin_emails=" PalaniAppan1492@gmail.com,ADMIN@example.com ",
+    ).admin_emails == ("palaniappan1492@gmail.com", "admin@example.com")
+
+
+def test_admin_email_allowlist_rejects_invalid_input() -> None:
+    with pytest.raises(ValidationError, match="invalid email"):
+        Settings(_env_file=None, admin_emails="not-an-email")
+
+
 def test_production_refuses_ephemeral_in_memory_persistence() -> None:
     with pytest.raises(ValueError, match="Persistent DATABASE_URL"):
         build_container(Settings(app_env="production", database_url=None, db_host=None))
