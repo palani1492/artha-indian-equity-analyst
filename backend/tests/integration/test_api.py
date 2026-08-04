@@ -335,6 +335,7 @@ def test_chat_updates_persona_and_recommends_from_followed_universe(
     assert recommendation.status_code == 200
     assert recommendation.json()["grounded"] is True
     assert recommendation.json()["recommendations"]
+    assert "Fit reasons:" not in recommendation.json()["answer"]
 
 
 def test_memory_update_is_not_treated_as_stock_research(client, auth_headers) -> None:

@@ -20,6 +20,11 @@ class PromptInjectedGenerator:
         return "TCS guarantees a profit this week [1]."
 
 
+class UnsupportedRewriteGenerator:
+    async def generate(self, draft: str, sources: tuple) -> str:
+        return "TCS trades at INR 4,125.50 and management quality improved materially [1]."
+
+
 async def test_embedding_provider_failure_falls_back_and_cache_reuses_result() -> None:
     fallback = DeterministicEmbedder(dimensions=8)
     embedder = ResilientCachedEmbedder(FailingEmbedder(), fallback)
@@ -51,6 +56,21 @@ async def test_untrusted_rss_prompt_injection_cannot_change_grounded_draft() -> 
     )
     draft = "I don't have that in the ingested data."
     generator = ClaimPreservingAnswerGenerator(PromptInjectedGenerator())
+    assert await generator.generate(draft, (source,)) == draft
+
+
+async def test_provider_rewrite_with_unsupported_qualitative_claim_is_rejected() -> None:
+    source = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.FUNDAMENTALS,
+        title="TCS fundamentals",
+        url="https://example.test/tcs",
+        content="TCS price is INR 4,125.50.",
+        published_at=datetime.now(UTC),
+    )
+    draft = "TCS trades at INR 4,125.50 [1]."
+    generator = ClaimPreservingAnswerGenerator(UnsupportedRewriteGenerator())
+
     assert await generator.generate(draft, (source,)) == draft
 
 
