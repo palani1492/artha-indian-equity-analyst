@@ -37,6 +37,7 @@ from app.domain.models import (
     SourceDocument,
     Stock,
     canonical_source_url,
+    normalize_company_text,
     source_story_fingerprint,
 )
 
@@ -380,6 +381,27 @@ class SqlAlchemyResearchRepository:
             return tuple(
                 self._document(row) for row in (await session.scalars(query)).all()
             )
+
+    async def remove_stale_news(
+        self, ticker: str, aliases: tuple[str, ...]
+    ) -> int:
+        query = select(DocumentRow).where(
+            DocumentRow.ticker == ticker,
+            DocumentRow.kind == DocumentKind.NEWS.value,
+        )
+        async with self._sessions.begin() as session:
+            rows = list((await session.scalars(query)).all())
+            stale = [
+                row
+                for row in rows
+                if not any(
+                    alias in normalize_company_text(f"{row.title} {row.content}")
+                    for alias in aliases
+                )
+            ]
+            for row in stale:
+                await session.delete(row)
+            return len(stale)
 
     async def deduplicate_documents(self, ticker: str | None = None) -> int:
         query = select(DocumentRow).order_by(

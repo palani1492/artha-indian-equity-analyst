@@ -8,6 +8,7 @@ from app.domain.models import (
     Stock,
     canonical_source_url,
     normalize_ticker,
+    safe_company_aliases,
     source_story_fingerprint,
 )
 from app.embeddings import Embedder
@@ -36,6 +37,7 @@ class IngestionService:
             provider_ticker = f"{ticker}.BO" if exchange is Exchange.BSE else ticker
             stock, raw_documents = await self._provider.fetch(provider_ticker)
             previous_stock = await self._repository.get_stock(ticker)
+            await self._repository.remove_stale_news(ticker, safe_company_aliases(stock))
             existing = await self._repository.list_documents(ticker)
             candidates, pre_skipped = self._deduplicate_candidates(
                 raw_documents, existing

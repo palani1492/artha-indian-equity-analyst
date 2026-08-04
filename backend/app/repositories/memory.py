@@ -16,6 +16,7 @@ from app.domain.models import (
     SourceDocument,
     Stock,
     canonical_source_url,
+    normalize_company_text,
     source_story_fingerprint,
 )
 
@@ -194,6 +195,41 @@ class InMemoryResearchRepository:
                 documents, key=lambda item: (item.published_at, item.id), reverse=True
             )
         )
+
+    async def remove_stale_news(
+        self, ticker: str, aliases: tuple[str, ...]
+    ) -> int:
+        async with self._write_lock:
+            stale_ids = {
+                document_id
+                for document_id, stored in self._documents.items()
+                if stored.document.ticker == ticker
+                and stored.document.kind is DocumentKind.NEWS
+                and not any(
+                    alias
+                    in normalize_company_text(
+                        f"{stored.document.title} {stored.document.content}"
+                    )
+                    for alias in aliases
+                )
+            }
+            if not stale_ids:
+                return 0
+            self._documents = {
+                document_id: stored
+                for document_id, stored in self._documents.items()
+                if document_id not in stale_ids
+            }
+            self._hashes = {
+                (stored.document.ticker, stored.document.content_hash)
+                for stored in self._documents.values()
+            }
+            self._graph_facts = {
+                fact_id: fact
+                for fact_id, fact in self._graph_facts.items()
+                if fact.source_document_id in self._documents
+            }
+            return len(stale_ids)
 
     async def deduplicate_documents(self, ticker: str | None = None) -> int:
         async with self._write_lock:

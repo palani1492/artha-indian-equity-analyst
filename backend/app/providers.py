@@ -19,7 +19,9 @@ from app.domain.models import (
     SourceDocument,
     SourceTier,
     Stock,
+    normalize_company_text,
     normalize_ticker,
+    safe_company_aliases,
 )
 
 TAG_PATTERN = re.compile(r"<[^>]+>")
@@ -357,27 +359,11 @@ class LiveIndianMarketDataProvider:
 
     @classmethod
     def _company_aliases(cls, stock: Stock) -> tuple[str, ...]:
-        normalized_name = cls._normalize_company_text(stock.name)
-        shortened_name = normalized_name
-        for suffix in (" limited", " ltd", " plc"):
-            shortened_name = shortened_name.removesuffix(suffix)
-        words = shortened_name.split()
-        aliases = {
-            cls._normalize_company_text(stock.ticker),
-            shortened_name,
-            " ".join(words[:2]) if len(words) >= 2 else shortened_name,
-        }
-        return tuple(
-            sorted(
-                (alias for alias in aliases if len(alias) >= 3),
-                key=len,
-                reverse=True,
-            )
-        )
+        return safe_company_aliases(stock)
 
     @staticmethod
     def _normalize_company_text(value: str) -> str:
-        return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+        return normalize_company_text(value)
 
     @staticmethod
     def _fundamentals_document(stock: Stock) -> SourceDocument:

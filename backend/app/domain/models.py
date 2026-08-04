@@ -102,6 +102,24 @@ class Stock(BaseModel):
         return ticker
 
 
+def normalize_company_text(value: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+
+
+def safe_company_aliases(stock: Stock) -> tuple[str, ...]:
+    normalized_name = normalize_company_text(stock.name)
+    shortened_name = normalized_name
+    for suffix in (" limited", " ltd", " plc"):
+        shortened_name = shortened_name.removesuffix(suffix)
+    words = shortened_name.split()
+    aliases = {
+        normalize_company_text(stock.ticker),
+        shortened_name,
+        " ".join(words[:2]) if len(words) >= 2 else shortened_name,
+    }
+    return tuple(sorted((alias for alias in aliases if len(alias) >= 3), key=len, reverse=True))
+
+
 class InvestorPersona(BaseModel):
     model_config = ConfigDict(frozen=True)
 
