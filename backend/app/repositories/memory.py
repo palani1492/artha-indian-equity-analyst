@@ -355,6 +355,36 @@ class InMemoryResearchRepository:
             }
         return True
 
+    async def reset_user_follows(self, user_id: str) -> bool:
+        if user_id not in self._users:
+            return False
+        async with self._write_lock:
+            self._follows = {
+                key: tickers for key, tickers in self._follows.items() if key != user_id
+            }
+        return True
+
+    async def delete_user_conversations(self, user_id: str) -> bool:
+        if user_id not in self._users:
+            return False
+        async with self._write_lock:
+            conversation_ids = {
+                conversation.id
+                for conversation in self._conversations.values()
+                if conversation.user_id == user_id
+            }
+            self._conversations = {
+                key: conversation
+                for key, conversation in self._conversations.items()
+                if conversation.user_id != user_id
+            }
+            self._messages = {
+                key: messages
+                for key, messages in self._messages.items()
+                if key not in conversation_ids
+            }
+        return True
+
     async def get_session_user(self, session_id: str, now: float) -> str | None:
         session = self._sessions.get(session_id)
         if session is None or session[1] <= now:

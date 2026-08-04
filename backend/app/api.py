@@ -112,6 +112,13 @@ class OAuthConfigResponse(BaseModel):
     scopes: tuple[str, ...] = ("openid", "email", "profile")
 
 
+class AdminActionResponse(BaseModel):
+    id: str
+    action: str
+    changed: bool = True
+    message: str
+
+
 class ConversationCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
@@ -168,6 +175,16 @@ async def _admin_user(
             detail="Administrator access required",
         )
     return user
+
+
+def _reject_admin_self_target(
+    target_user_id: str, admin_user: dict[str, str | None]
+) -> None:
+    if target_user_id == admin_user.get("id"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Refusing to modify the authenticated administrator's own account",
+        )
 
 
 def create_app(container: Container | None = None) -> FastAPI:
@@ -363,13 +380,50 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.post("/api/v1/admin/users/{user_id}/reset-profile")
     async def admin_reset_profile(
         user_id: Annotated[str, Path(min_length=1, max_length=320, pattern=r"^\S+$")],
-        _: Annotated[dict[str, str | None], Depends(_admin_user)],
-    ) -> dict[str, str | bool]:
+        admin_user: Annotated[dict[str, str | None], Depends(_admin_user)],
+    ) -> AdminActionResponse:
+        _reject_admin_self_target(user_id, admin_user)
         if not await dependencies.repository.reset_user_profile(user_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
-        return {"id": user_id, "reset": True}
+        return AdminActionResponse(
+            id=user_id,
+            action="reset-profile",
+            message=f"Profile and followed stocks reset for user {user_id}",
+        )
+
+    @app.post("/api/v1/admin/users/{user_id}/reset-follows")
+    async def admin_reset_follows(
+        user_id: Annotated[str, Path(min_length=1, max_length=320, pattern=r"^\S+$")],
+        admin_user: Annotated[dict[str, str | None], Depends(_admin_user)],
+    ) -> AdminActionResponse:
+        _reject_admin_self_target(user_id, admin_user)
+        if not await dependencies.repository.reset_user_follows(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
+        return AdminActionResponse(
+            id=user_id,
+            action="reset-follows",
+            message=f"Followed stocks reset for user {user_id}",
+        )
+
+    @app.delete("/api/v1/admin/users/{user_id}/conversations")
+    async def admin_delete_conversations(
+        user_id: Annotated[str, Path(min_length=1, max_length=320, pattern=r"^\S+$")],
+        admin_user: Annotated[dict[str, str | None], Depends(_admin_user)],
+    ) -> AdminActionResponse:
+        _reject_admin_self_target(user_id, admin_user)
+        if not await dependencies.repository.delete_user_conversations(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
+        return AdminActionResponse(
+            id=user_id,
+            action="delete-conversations",
+            message=f"All conversations and messages deleted for user {user_id}",
+        )
 
     @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
     async def logout(request: Request, response: Response) -> Response:

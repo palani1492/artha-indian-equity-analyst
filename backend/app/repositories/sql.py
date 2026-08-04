@@ -546,6 +546,30 @@ class SqlAlchemyResearchRepository:
             await session.execute(delete(FollowRow).where(FollowRow.user_id == user_id))
             return True
 
+    async def reset_user_follows(self, user_id: str) -> bool:
+        async with self._sessions.begin() as session:
+            user = await session.get(UserRow, user_id)
+            if user is None:
+                return False
+            await session.execute(delete(FollowRow).where(FollowRow.user_id == user_id))
+            return True
+
+    async def delete_user_conversations(self, user_id: str) -> bool:
+        async with self._sessions.begin() as session:
+            user = await session.get(UserRow, user_id)
+            if user is None:
+                return False
+            conversation_ids = select(ConversationRow.id).where(
+                ConversationRow.user_id == user_id
+            )
+            await session.execute(
+                delete(ConversationMessageRow).where(
+                    ConversationMessageRow.conversation_id.in_(conversation_ids)
+                )
+            )
+            await session.execute(delete(ConversationRow).where(ConversationRow.user_id == user_id))
+            return True
+
     async def create_session(
         self, session_id: str, user_id: str, expires_at: float
     ) -> None:

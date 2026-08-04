@@ -45,6 +45,8 @@ import {
   requestNotes,
   requestUnfollow,
   requestPersonaUpdate,
+  resetAdminUserFollows,
+  deleteAdminUserConversations,
   resetAdminUserProfile,
   sourceList,
   stockList,
@@ -687,15 +689,29 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     }
   }
 
-  async function handleAdminReset(userToReset: AdminUser) {
-    if (!window.confirm(`Reset the profile and followed stocks for ${userToReset.email ?? userToReset.id}? This cannot be undone.`)) {
+  async function handleAdminAction(userToReset: AdminUser, action: "profile" | "follows" | "conversations") {
+    const label = userToReset.email ?? userToReset.id;
+    const confirmation = action === "profile"
+      ? `Reset the profile and all followed stocks for ${label}? This permanently removes the saved profile and follows.`
+      : action === "follows"
+        ? `Reset all followed stocks for ${label}? This permanently removes their followed-stock list.`
+        : `Delete every conversation and message for ${label}? This permanently deletes their research history.`;
+    if (!window.confirm(confirmation)) {
       return;
     }
-    setResettingUserId(userToReset.id);
+    setResettingUserId(`${action}:${userToReset.id}`);
     setAdminError("");
     try {
-      await resetAdminUserProfile(userToReset.id);
-      setNotice(`Profile reset for ${userToReset.email ?? userToReset.id}.`);
+      if (action === "profile") await resetAdminUserProfile(userToReset.id);
+      if (action === "follows") await resetAdminUserFollows(userToReset.id);
+      if (action === "conversations") await deleteAdminUserConversations(userToReset.id);
+      setNotice(
+        action === "profile"
+          ? `Profile and followed stocks reset for ${label}.`
+          : action === "follows"
+            ? `Followed stocks reset for ${label}.`
+            : `Conversations and messages deleted for ${label}.`,
+      );
     } catch (error: unknown) {
       const status = isRecord(error) && typeof error.status === "number" ? error.status : 0;
       setAdminError(
@@ -705,7 +721,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             ? "This account is not authorized for admin access."
             : status === 404
               ? "That user no longer exists. Refresh the list."
-              : "The profile could not be reset. Try again later.",
+              : "The admin action could not be completed. Try again later.",
       );
     } finally {
       setResettingUserId(null);
@@ -1062,7 +1078,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               loading={adminUsers === null && !adminError}
               error={adminError}
               resettingUserId={resettingUserId}
-              onReset={(userToReset) => void handleAdminReset(userToReset)}
+              onAction={(userToReset, action) => void handleAdminAction(userToReset, action)}
             />
           ) : null}
 
@@ -1308,13 +1324,13 @@ function AdminPanel({
   loading,
   error,
   resettingUserId,
-  onReset,
+  onAction,
 }: {
   users: AdminUser[];
   loading: boolean;
   error: string;
   resettingUserId: string | null;
-  onReset: (user: AdminUser) => void;
+  onAction: (user: AdminUser, action: "profile" | "follows" | "conversations") => void;
 }) {
   return (
     <section className="admin-panel" aria-labelledby="admin-title">
@@ -1325,7 +1341,7 @@ function AdminPanel({
         </div>
         <span className="admin-badge">UI gate</span>
       </div>
-      <p className="admin-warning">Destructive actions affect another user&apos;s saved profile and followed stocks.</p>
+      <p className="admin-warning">These destructive actions affect another user&apos;s saved data. Each action requires explicit confirmation.</p>
       {loading ? <p className="admin-status" role="status">Loading users...</p> : null}
       {error ? <p className="admin-error" role="alert">{error}</p> : null}
       {!loading && !error && users.length === 0 ? <p className="admin-status">No users found.</p> : null}
@@ -1337,15 +1353,35 @@ function AdminPanel({
                 <strong>{user.name || "Unnamed user"}</strong>
                 <span>{user.email || user.id}</span>
               </div>
-              <button
-                className="admin-reset-button"
-                type="button"
-                disabled={resettingUserId === user.id}
-                onClick={() => onReset(user)}
-                aria-label={`Reset profile for ${user.email || user.id}`}
-              >
-                {resettingUserId === user.id ? "Resetting..." : "Reset profile"}
-              </button>
+              <div className="admin-actions">
+                <button
+                  className="admin-reset-button"
+                  type="button"
+                  disabled={Boolean(resettingUserId)}
+                  onClick={() => onAction(user, "profile")}
+                  aria-label={`Reset profile and followed stocks for ${user.email || user.id}`}
+                >
+                  {resettingUserId === `profile:${user.id}` ? "Resetting..." : "Reset profile + follows"}
+                </button>
+                <button
+                  className="admin-reset-button"
+                  type="button"
+                  disabled={Boolean(resettingUserId)}
+                  onClick={() => onAction(user, "follows")}
+                  aria-label={`Reset followed stocks for ${user.email || user.id}`}
+                >
+                  {resettingUserId === `follows:${user.id}` ? "Resetting..." : "Reset follows"}
+                </button>
+                <button
+                  className="admin-reset-button"
+                  type="button"
+                  disabled={Boolean(resettingUserId)}
+                  onClick={() => onAction(user, "conversations")}
+                  aria-label={`Delete conversations for ${user.email || user.id}`}
+                >
+                  {resettingUserId === `conversations:${user.id}` ? "Deleting..." : "Delete conversations"}
+                </button>
+              </div>
             </li>
           ))}
         </ul>
