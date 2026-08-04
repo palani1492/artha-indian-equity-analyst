@@ -35,7 +35,9 @@ test.describe("admin visibility", () => {
     const adminRequests = await openMockedWorkspace(page, "palaniappan1492@gmail.com");
 
     await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reset profile for user@example.com" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reset profile and followed stocks for user@example.com" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reset followed stocks for user@example.com" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Delete conversations for user@example.com" })).toBeVisible();
     expect(adminRequests()).toBe(1);
   });
 

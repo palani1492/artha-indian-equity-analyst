@@ -203,6 +203,18 @@ export async function resetAdminUserProfile(userId: string): Promise<void> {
   });
 }
 
+export async function resetAdminUserFollows(userId: string): Promise<void> {
+  await requestJson(`/api/v1/admin/users/${encodeURIComponent(userId)}/reset-follows`, {
+    method: "POST",
+  });
+}
+
+export async function deleteAdminUserConversations(userId: string): Promise<void> {
+  await requestJson(`/api/v1/admin/users/${encodeURIComponent(userId)}/conversations`, {
+    method: "DELETE",
+  });
+}
+
 export async function createNote(payload: {
   title: string;
   body: string;

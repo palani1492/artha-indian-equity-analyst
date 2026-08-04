@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
 import jwt
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api import create_app
 from app.container import build_container
-from app.domain.models import InvestorPersona
+from app.domain.models import ConversationMessage, InvestorPersona, ResearchConversation
 from app.settings import Settings
 
 
@@ -381,6 +383,116 @@ def test_admin_endpoints_do_not_trust_frontend_email_and_validate_target(contain
             "/api/v1/admin/users/%20/reset-profile",
             headers={"X-User-ID": "admin-id"},
         ).status_code == 422
+
+
+def test_admin_controls_delete_conversations_reset_follows_and_protect_admin(container) -> None:
+    container.settings.admin_emails = ("admin@example.com",)
+    now = datetime.now(UTC)
+    asyncio.run(container.repository.upsert_user("admin-id", "admin@example.com", "Admin", None))
+    asyncio.run(container.repository.upsert_user("user-id", "user@example.com", "User", None))
+    asyncio.run(container.repository.follow_stock("user-id", "TCS"))
+    conversation = ResearchConversation(
+        id="conversation-1", user_id="user-id", title="Research", created_at=now, updated_at=now
+    )
+    asyncio.run(container.repository.create_conversation(conversation))
+    asyncio.run(container.repository.add_conversation_message(
+        ConversationMessage(
+            id="message-1", conversation_id=conversation.id, role="user", text="Review TCS",
+            scope_tickers=("TCS",), created_at=now,
+        )
+    ))
+
+    with TestClient(create_app(container)) as admin_client:
+        assert admin_client.post(
+            "/api/v1/admin/users/user-id/reset-follows", headers={"X-User-ID": "user-id"}
+        ).status_code == 403
+        reset_follows = admin_client.post(
+            "/api/v1/admin/users/user-id/reset-follows", headers={"X-User-ID": "admin-id"}
+        )
+        assert reset_follows.status_code == 200
+        assert reset_follows.json()["message"] == "Followed stocks reset for user user-id"
+        assert asyncio.run(container.repository.list_followed_tickers("user-id")) == ()
+
+        deleted = admin_client.delete(
+            "/api/v1/admin/users/user-id/conversations", headers={"X-User-ID": "admin-id"}
+        )
+        assert deleted.status_code == 200
+        assert "messages deleted" in deleted.json()["message"]
+        assert asyncio.run(container.repository.list_conversations("user-id")) == ()
+        assert asyncio.run(
+            container.repository.list_conversation_messages("user-id", conversation.id)
+        ) == ()
+
+        self_target = admin_client.post(
+            "/api/v1/admin/users/admin-id/reset-follows", headers={"X-User-ID": "admin-id"}
+        )
+        assert self_target.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    (
+        ("post", "/api/v1/admin/users/user-id/reset-profile"),
+        ("post", "/api/v1/admin/users/user-id/reset-follows"),
+        ("delete", "/api/v1/admin/users/user-id/conversations"),
+    ),
+)
+def test_all_admin_mutations_reject_non_admins(container, method: str, path: str) -> None:
+    container.settings.admin_emails = ("admin@example.com",)
+    asyncio.run(container.repository.upsert_user("user-id", "user@example.com", "User", None))
+
+    with TestClient(create_app(container)) as admin_client:
+        response = getattr(admin_client, method)(path, headers={"X-User-ID": "user-id"})
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix"),
+    (
+        ("post", "reset-profile"),
+        ("post", "reset-follows"),
+        ("delete", "conversations"),
+    ),
+)
+def test_all_admin_mutations_reject_missing_users(
+    container, method: str, suffix: str
+) -> None:
+    container.settings.admin_emails = ("admin@example.com",)
+    asyncio.run(
+        container.repository.upsert_user("admin-id", "admin@example.com", "Admin", None)
+    )
+
+    with TestClient(create_app(container)) as admin_client:
+        response = getattr(admin_client, method)(
+            f"/api/v1/admin/users/missing/{suffix}", headers={"X-User-ID": "admin-id"}
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix"),
+    (
+        ("post", "reset-profile"),
+        ("post", "reset-follows"),
+        ("delete", "conversations"),
+    ),
+)
+def test_all_admin_mutations_protect_authenticated_admin(
+    container, method: str, suffix: str
+) -> None:
+    container.settings.admin_emails = ("admin@example.com",)
+    asyncio.run(
+        container.repository.upsert_user("admin-id", "admin@example.com", "Admin", None)
+    )
+
+    with TestClient(create_app(container)) as admin_client:
+        response = getattr(admin_client, method)(
+            f"/api/v1/admin/users/admin-id/{suffix}", headers={"X-User-ID": "admin-id"}
+        )
+
+    assert response.status_code == 409
 
 
 def test_google_oauth_config_is_env_driven(client) -> None:

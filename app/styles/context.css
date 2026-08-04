@@ -293,6 +293,13 @@
   gap: 2px;
 }
 
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
 .admin-user-list strong,
 .admin-user-list span {
   overflow: hidden;
@@ -322,6 +329,17 @@
 
 .admin-reset-button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--negative) 10%, transparent);
+}
+
+@media (max-width: 560px) {
+  .admin-user-list li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-actions {
+    justify-content: flex-start;
+  }
 }
 
 .sources-toggle {
