@@ -1,6 +1,6 @@
-# Sentellent
+# Artha
 
-Sentellent is a reviewer-facing research workspace for Indian equities. It lets an investor follow NSE/BSE symbols, build a durable research memory, ask grounded questions, and inspect the evidence behind each answer. It is a research demonstration: it does not place trades, generate buy/sell instructions, or predict prices.
+Artha is a reviewer-facing research workspace for Indian equities. It lets an investor follow NSE/BSE symbols, build a durable research memory, ask grounded questions, and inspect the evidence behind each answer. It is a research demonstration: it does not place trades, generate buy/sell instructions, or predict prices.
 
 **Deployed application:** `https://palani.cloud`
 **Deterministic reviewer route:** `https://palani.cloud/demo`
@@ -156,19 +156,10 @@ On `main`, GitHub Actions assumes a scoped AWS role through OIDC, builds and sca
 
 See [`infra/README.md`](infra/README.md) for bootstrap, variables, rollback, and operational commands.
 
-## Submission Evidence Checklist
-
-- Public HTTPS root showing Google OIDC, a followed ticker, personalized cited answer, evidence rail, and safe unsupported-data response.
-- `/demo` showing deterministic questions and no production-state mutation.
-- Passing `CI` and `Deploy production` workflows for the submitted commit SHA.
-- Healthy ECS services and ALB targets; RDS, ECR scan, EventBridge schedule, WAF, and Secrets Manager resources with values hidden.
-- Google OAuth test users and callback configuration, with credentials redacted.
-- Repository link, deployed URL, and screenshots attached to the required submission form.
-
 ## Responsible Use and Boundaries
 
-Sentellent is not SEBI-registered investment advice. Data may be delayed, incomplete, syndicated, or unavailable. The seven configured feeds and yfinance are not a complete primary-source record, and the application does not directly ingest NSE/BSE filings. Verify exchange data, company disclosures, and primary filings independently.
+Artha is not SEBI-registered investment advice. Data may be delayed, incomplete, syndicated, or unavailable. The seven configured feeds and yfinance are not a complete primary-source record, and the application does not directly ingest NSE/BSE filings. Verify exchange data, company disclosures, and primary filings independently.
 
-No trading is supported: Sentellent never executes trades, connects to a brokerage for execution, gives a guaranteed outcome, or predicts a future price. "Best fit" and similar responses are bounded research rankings over the followed/indexed evidence and stored investor preferences, not recommendations or promises.
+No trading is supported: Artha never executes trades, connects to a brokerage for execution, gives a guaranteed outcome, or predicts a future price. "Best fit" and similar responses are bounded research rankings over the followed/indexed evidence and stored investor preferences, not recommendations or promises.
 
 The current challenge-scope identity is `(ticker)` with NSE/BSE as an attribute. It does not store simultaneous NSE and BSE listings of the same normalized symbol as separate holdings; a production brokerage integration should use `(ticker, exchange)` or an exchange-issued instrument ID.

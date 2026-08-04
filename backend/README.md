@@ -1,4 +1,4 @@
-# Sentellent backend
+# Artha backend
 
 FastAPI + LangGraph backend for grounded Indian-equity research. The default demo provider is deterministic and network-free. Production live mode uses yfinance for INR-market fundamentals and seven rate-limited, configurable Indian financial RSS/Atom feeds (Economic Times, Moneycontrol, LiveMint, Business Standard, and SEBI). OpenAI or Gemini generation/tagging is optional; provider errors fall back to deterministic local behavior.
 
