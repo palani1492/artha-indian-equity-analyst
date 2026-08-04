@@ -7,7 +7,7 @@ async function openMockedWorkspace(page: import("@playwright/test").Page, email:
     if (url.pathname === "/api/v1/auth/me") {
       await route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({ email, name: "Test user" }),
+        body: JSON.stringify({ email, name: "Test user", is_admin: email === "admin@example.invalid" }),
       });
       return;
     }
@@ -37,14 +37,14 @@ async function openAdminWorkspaceWithUsers(
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/v1/auth/me") {
-      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "admin-id", email: "palaniappan1492@gmail.com", name: "Admin" }) });
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "admin-id", email: "admin@example.invalid", name: "Admin", is_admin: true }) });
       return;
     }
     if (url.pathname === "/api/v1/admin/users") {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify([
-          { id: "admin-id", email: "palaniappan1492@gmail.com", name: "Admin" },
+          { id: "admin-id", email: "admin@example.invalid", name: "Admin" },
           { id: "user-1", email: "user@example.com", name: "User One" },
         ]),
       });
@@ -62,7 +62,7 @@ async function openAdminWorkspaceWithUsers(
 
 test.describe("admin visibility", () => {
   test("shows the admin section for the approved authenticated email", async ({ page }) => {
-    const adminRequests = await openMockedWorkspace(page, "palaniappan1492@gmail.com");
+    const adminRequests = await openMockedWorkspace(page, "admin@example.invalid");
 
     await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reset profile and followed stocks for user@example.com" })).toBeVisible();
@@ -82,7 +82,7 @@ test.describe("admin visibility", () => {
     await openAdminWorkspaceWithUsers(page);
 
     const rail = page.locator(".context-rail");
-    await expect(page.getByRole("button", { name: /for palaniappan1492@gmail.com/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /for admin@example.invalid/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Reset profile and followed stocks for user@example.com" })).toBeVisible();
     await expect(rail.locator("section").last().getByRole("heading", { name: "Admin" })).toBeVisible();
   });

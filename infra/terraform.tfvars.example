@@ -34,15 +34,7 @@ mutation_api_path_patterns = [
   "^/api/v1/conversations$",
 ]
 
-# Safe production defaults: seven days of backups, deletion protection, and a
-# final snapshot named sentellent-production-final on intentional teardown.
-database_backup_retention_days = 7
 database_deletion_protection   = true
-
-# Server-side admin allowlist. Do not expose this as frontend configuration.
-backend_environment = {
-  ADMIN_EMAILS = "palaniappan1492@gmail.com"
-}
 
 tags = {
   Owner = "your-name"

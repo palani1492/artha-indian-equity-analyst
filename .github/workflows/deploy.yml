@@ -34,7 +34,6 @@ jobs:
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_image_tag: ${{ github.sha }}
       TF_VAR_ai_provider: ${{ vars.AI_PROVIDER || 'local' }}
-      TF_VAR_backend_environment: '{"ADMIN_EMAILS":"${{ vars.ADMIN_EMAILS }}"}'
       TF_VAR_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
       TF_VAR_public_base_url: ${{ vars.PUBLIC_BASE_URL }}
     steps:
@@ -96,6 +95,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
         run: |
           secret_arn="$(terraform output -raw application_secret_arn)"
           jq -n \
@@ -104,7 +104,8 @@ jobs:
             --arg google_id "${GOOGLE_CLIENT_ID}" \
             --arg google_secret "${GOOGLE_CLIENT_SECRET}" \
             --arg session "${SESSION_SECRET}" \
-            '{OPENAI_API_KEY:$openai,GEMINI_API_KEY:$gemini,GOOGLE_CLIENT_ID:$google_id,GOOGLE_CLIENT_SECRET:$google_secret,SESSION_SECRET:$session}' \
+            --arg admin_emails "${ADMIN_EMAILS}" \
+            '{OPENAI_API_KEY:$openai,GEMINI_API_KEY:$gemini,GOOGLE_CLIENT_ID:$google_id,GOOGLE_CLIENT_SECRET:$google_secret,SESSION_SECRET:$session,ADMIN_EMAILS:$admin_emails}' \
             > "${RUNNER_TEMP}/runtime-secrets.json"
           aws secretsmanager put-secret-value \
             --secret-id "${secret_arn}" \
