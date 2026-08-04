@@ -5,6 +5,7 @@ from typing import Protocol
 
 from app.domain.models import (
     ConversationMessage,
+    GraphFact,
     InvestorPersona,
     ResearchConversation,
     ResearchNote,
@@ -51,6 +52,10 @@ class ResearchRepository(Protocol):
     ) -> tuple[SourceDocument, ...]: ...
 
     async def deduplicate_documents(self, ticker: str | None = None) -> int: ...
+
+    async def upsert_graph_facts(self, facts: tuple[GraphFact, ...]) -> None: ...
+
+    async def list_graph_facts(self, ticker: str) -> tuple[GraphFact, ...]: ...
 
     async def search_documents(
         self,

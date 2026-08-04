@@ -11,6 +11,7 @@ from app.domain.models import (
     source_story_fingerprint,
 )
 from app.embeddings import Embedder
+from app.graph import extract_graph_facts
 from app.providers import MarketDataProvider
 from app.repositories.base import ResearchRepository
 from app.tagging import ArticleTagger
@@ -71,6 +72,10 @@ class IngestionService:
                 else:
                     skipped += 1
             await self._repository.deduplicate_documents(ticker)
+            persisted_documents = await self._repository.list_documents(ticker)
+            await self._repository.upsert_graph_facts(
+                extract_graph_facts(stock, persisted_documents)
+            )
             return IngestionResult(
                 ticker=ticker,
                 inserted=inserted,

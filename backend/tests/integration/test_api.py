@@ -120,6 +120,9 @@ def test_versioned_sources_and_ingest_routes_are_available(
         client.post("/api/v1/stocks/TCS/ingest", headers=auth_headers).status_code
         == 200
     )
+    facts = client.get("/api/v1/stocks/TCS/graph-facts", headers=auth_headers)
+    assert facts.status_code == 200
+    assert all(fact["source_url"].startswith("https://") for fact in facts.json())
 
 
 def test_follow_stock_and_grounded_chat_flow(client, auth_headers) -> None:

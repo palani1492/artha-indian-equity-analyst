@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from app.domain.models import (
     ConversationMessage,
     DocumentKind,
+    GraphFact,
     InvestorPersona,
     ResearchConversation,
     ResearchNote,
@@ -31,6 +32,7 @@ class InMemoryResearchRepository:
     def __init__(self) -> None:
         self._stocks: dict[str, Stock] = {}
         self._documents: dict[str, _StoredDocument] = {}
+        self._graph_facts: dict[str, GraphFact] = {}
         self._hashes: set[tuple[str, str]] = set()
         self._personas: dict[str, InvestorPersona] = {}
         self._persona_embeddings: dict[str, tuple[float, ...]] = {}
@@ -239,7 +241,41 @@ class InMemoryResearchRepository:
                 (stored.document.ticker, stored.document.content_hash)
                 for stored in self._documents.values()
             }
+            self._graph_facts = {
+                fact_id: fact
+                for fact_id, fact in self._graph_facts.items()
+                if fact.source_document_id in self._documents
+            }
             return len(stale_ids)
+
+    async def upsert_graph_facts(self, facts: tuple[GraphFact, ...]) -> None:
+        async with self._write_lock:
+            self._graph_facts = {
+                **self._graph_facts,
+                **{fact.id: fact for fact in facts},
+            }
+
+    async def list_graph_facts(self, ticker: str) -> tuple[GraphFact, ...]:
+        return tuple(
+            sorted(
+                (
+                    fact
+                    for fact in self._graph_facts.values()
+                    if fact.subject_id == ticker
+                    or (
+                        fact.subject_type == "document"
+                        and self._document_ticker(fact) == ticker
+                    )
+                    or fact.object_id == ticker
+                ),
+                key=lambda fact: (fact.observed_at, fact.id),
+                reverse=True,
+            )
+        )
+
+    def _document_ticker(self, fact: GraphFact) -> str | None:
+        document = self._documents.get(fact.subject_id)
+        return document.document.ticker if document else None
 
     async def search_documents(
         self,
