@@ -1,307 +1,174 @@
-# Artha — contextual Indian-equity research
+# Sentellent
 
-Artha is a personal research chief of staff for NSE and BSE equities. It follows
-Indian tickers, ingests fundamentals and financial news, learns an investor's
-preferences, and returns grounded research with source citations and INR-only
-figures.
+Sentellent is a reviewer-facing research workspace for Indian equities. It lets an investor follow NSE/BSE symbols, build a durable research memory, ask grounded questions, and inspect the evidence behind each answer. It is a research demonstration: it does not place trades, generate buy/sell instructions, or predict prices.
 
-The project is deliberately deployable rather than localhost-only: the frontend
-and API are containerized, PostgreSQL/pgvector and the AWS runtime are defined in
-Terraform, and a main-branch GitHub Actions workflow builds immutable images,
-runs migrations, rolls out ECS services, and smoke-tests the public application.
+**Deployed application:** `https://palani.cloud`
+**Deterministic reviewer route:** `https://palani.cloud/demo`
 
-> **Current repository status:** the full application and deployment automation
-> are implemented and deployed at `https://palani.cloud`. Cloud-console and
-> CI screenshots should be attached to the submission separately with secret
-> values hidden.
+## Reviewer Quick Start
 
-## What reviewers can exercise
+1. Open `/demo`. This route is deterministic, network-independent, and does not change production state.
+2. Try the exact starter questions:
+   - `What kind of investor am I?`
+   - `Compare RELIANCE and TCS.`
+   - `Which followed company best fits my profile?`
+   - `Give me a cited risk summary for RELIANCE.`
+   - `What changed this week for RELIANCE?`
+3. Follow another company, such as `INFY` or `HDFCBANK`, and repeat the comparison.
+4. Open the evidence rail to inspect cited sources, source tiers, graph facts, and the indexed universe.
+5. To test production authentication, use Google OIDC at the public root. Authenticated conversations and notes persist; demo mode remains isolated and deterministic.
 
-- Sign in with Google OIDC, or use deterministic demo auth locally.
-- Follow NSE/BSE symbols such as `RELIANCE`, `TCS`, and `HDFCBANK`.
-- Remove a followed equity with a confirmation step; the watchlist and active
-  research thread update immediately.
-- Ingest deduplicated fundamentals and recent Indian-market news from seven free RSS/Atom feeds spanning Economic Times, Moneycontrol, LiveMint, Business Standard, and SEBI.
-- Ask ticker questions and inspect the exact sources behind each answer.
-- Teach the agent a risk, dividend, debt, sector, and time-horizon persona in
-  chat or edit that memory explicitly.
-- Request personalized ideas ranked with testable algorithms before generation.
-- Receive a safe “I don't have that in the ingested data” response when the
-  retrieved evidence cannot support a claim.
-- New authenticated users get a six-step first-research tutorial, clickable
-  question starters, and an investor-memory handoff before they begin.
-- Broad questions such as “compare” and “which followed company fits me?” are
-  routed across the followed universe; ticker-specific questions stay scoped to
-  the active company. The evidence rail refreshes after every follow/ingest and
-  highlights sources cited by the latest answer.
-- Starter questions are generated from the active/followed universe rather than
-  hard-coded to a particular company. “What changed this week?” prioritizes the
-  newest retrieved news and states clearly when no matching news exists.
-- Signed-in workspaces automatically refresh all followed tickers every two
-  minutes and refresh again when the browser returns to the foreground. The
-  manual Refresh control remains available as an explicit “refresh now” action.
+## What Is Implemented
 
-The default `demo` data provider is deterministic, free, and network-independent
-for evaluation. `MARKET_DATA_PROVIDER=live` enables yfinance quotes/fundamentals
-plus rate-limited configured RSS feeds. The UI labels sample versus live state so
-fixture data is never presented as a live market feed.
-
-The Terraform production stack explicitly sets `MARKET_DATA_PROVIDER=live`, so
-the deployed application retrieves live quote/fundamental data and configured RSS
-coverage. The deterministic provider remains available for local tests and demos.
+- Live mode uses `yfinance` for quotes and fundamentals plus seven configured, rate-limited RSS/Atom feeds covering Economic Times, Moneycontrol, LiveMint, Business Standard, and SEBI. It does **not** directly ingest NSE/BSE filings.
+- A bundled deterministic ticker directory supports NSE and BSE autocomplete, company names, and search-only aliases. It is a manually updated directory, not a live exchange security master.
+- PostgreSQL 16 with `pgvector` stores documents, cached embeddings, source metadata, graph facts, followed stocks, conversations, notes, and investor memory.
+- The LangGraph flow extracts memory, retrieves pgvector candidates, applies deterministic ticker/recency/persona filters, composes citations, optionally rewrites prose with Gemini, and runs a grounding guard.
+- Source tiers distinguish `primary`, `company`, `secondary`, and `contextual` evidence. Retrieved claims retain source IDs and citations.
+- Broad questions search the followed/indexed universe. Ticker questions stay scoped to the active company. Bounded on-demand ingestion may index only the small number of directory candidates needed for a question; it is not unrestricted web search.
+- Google OIDC, opaque server-side sessions, ownership checks, persisted conversations/notes, and server-side admin controls are enabled in production.
+- The production path has AWS WAF rate limits, encrypted private RDS, one-day automated backups compatible with the intended RDS Free Tier posture, deletion protection, and final snapshots.
+- Gemini is enabled in production by setting the GitHub production variable `AI_PROVIDER=gemini` and providing `GEMINI_API_KEY`. The default remains deterministic local generation when it is not enabled or unavailable.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  Browser["Next.js research workspace"] -->|"same-origin /api"| ALB["AWS Application Load Balancer"]
-  ALB --> Web["Next.js on ECS Fargate"]
-  ALB --> API["FastAPI + LangGraph on ECS Fargate"]
-  API --> DB[("RDS PostgreSQL + pgvector")]
-  API --> Sources["yfinance + Indian financial RSS"]
-  API -. optional .-> AI["Gemini or OpenAI prose/tagging pass"]
-  Scheduler["EventBridge Scheduler"] -->|"idempotent refresh task"| API
-  GHA["GitHub Actions via OIDC"] --> ECR["ECR images"]
-  GHA --> Terraform["Terraform plan / apply"]
-  ECR --> Web
+  U[Reviewer browser] --> ALB[AWS ALB + WAF]
+  ALB --> FE[Next.js frontend on ECS Fargate]
+  ALB --> API[FastAPI + LangGraph on ECS Fargate]
+  API --> DB[(RDS PostgreSQL 16 + pgvector)]
+  API --> YF[yfinance]
+  API --> RSS[7 configured RSS/Atom feeds]
+  API --> DIR[Bundled ticker directory + aliases]
+  API -. optional grounded prose .-> GEM[Gemini in production]
+  SCHED[EventBridge Scheduler] --> API
+  GHA[GitHub Actions via OIDC] --> ECR[ECR images]
+  GHA --> TF[Terraform]
+  ECR --> FE
   ECR --> API
 ```
 
-The LangGraph request path separates work that benefits from language models
-from work that does not:
+Request flow: `memory -> retrieve -> deterministic rank/filter -> compose citations -> optional Gemini rewrite -> grounding guard`. The guard returns `I don't have that in the ingested data.` when the retrieved evidence cannot support a claim. Ingestion uses canonical URLs, content hashes, unique constraints, cached embeddings, and per-ticker PostgreSQL advisory locks for idempotency.
 
-1. Extract persona updates from the conversation and persist a versioned vector.
-2. Retrieve pgvector candidates, then rank/filter them deterministically against
-   ticker, recency, debt, dividend, risk, and sector constraints.
-3. Compose a cited draft from the selected source IDs.
-4. Optionally improve prose with an LLM while treating retrieved text as
-   untrusted data.
-5. Run the grounding guard; unsupported numeric or qualitative claims become a
-   safe fallback instead of reaching the user.
+## Challenge Requirement Mapping
 
-The deployed default remains deterministic and grounded (`AI_PROVIDER=local`)
-until a provider key is deliberately enabled. The backend supports optional
-OpenAI and Gemini prose/tagging passes; either provider is wrapped by a
-claim-preserving rewrite check and the independent grounding guard, with local
-fallback when a key is absent or a quota is exceeded. Gemini uses the stable
-`gemini-2.5-flash` model by default and its API key is stored only in Secrets
-Manager/GitHub environment secrets.
+| Requirement | Implementation evidence |
+| --- | --- |
+| Indian-equity research | NSE/BSE follow flows, bundled directory, yfinance fundamentals, configured Indian financial feeds |
+| Personalized research | Persisted investor persona, conversation context, notes, deterministic ranking against risk/dividend/debt/sector preferences |
+| Grounded answers | pgvector retrieval, source IDs, source tiers, graph facts, citation rail, independent grounding guard |
+| Safe bounded scope | Followed/indexed universe, bounded on-demand candidate ingestion, no unrestricted web search or filing claim |
+| Usable demo | Deterministic `/demo`, exact starter questions, sample profile, no production state changes |
+| Production readiness | ECS Fargate, ALB/WAF, RDS PostgreSQL, Secrets Manager, health/readiness checks, EventBridge refresh, GitHub OIDC CI/CD |
+| Access and administration | Google OIDC, opaque secure sessions, ownership-scoped mutations, server-side `ADMIN_EMAILS` controls |
 
-Ingestion uses normalized URLs, content hashes, a unique database constraint,
-cached embeddings, and a per-ticker PostgreSQL advisory lock. Manual and
-scheduled jobs can therefore overlap without double-indexing articles or
-corrupting rolling sentiment.
-
-## Repository map
+## Repository Map
 
 ```text
-app/                    Next.js workspace, API client, design system
+app/                    Next.js workspace and API client
 backend/app/            FastAPI, LangGraph, ingestion, auth, repositories
-backend/alembic/        pgvector schema and HNSW index migration
-backend/tests/          unit and API integration tests
-e2e/                    Playwright critical-user-flow tests
-infra/                  production AWS Terraform stack
-infra/bootstrap/        remote state and GitHub OIDC bootstrap
-.github/workflows/      CI quality gates and main-branch deployment
-scripts/                migration and manual ECS deployment helpers
+backend/alembic/        PostgreSQL/pgvector migrations
+backend/tests/          Backend unit and integration tests
+e2e/                    Playwright critical-flow tests
+infra/                  AWS Terraform stack and infrastructure README
+.github/workflows/      CI and main-branch deployment
 ```
 
-## Run locally
+## API Surface
 
-### One-command stack
+Canonical routes use `/api/v1`; compact `/api/*` aliases remain for the frontend.
 
-Prerequisites: Docker with Compose.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health`, `/health/live` | Liveness |
+| `GET` | `/health/ready` | Database, migrations, and pgvector readiness |
+| `GET` | `/api/v1/tickers/search?q=...` | Search bundled tickers, names, aliases, and exchange |
+| `GET` | `/api/v1/auth/google/config` | OIDC configuration status |
+| `GET` | `/api/v1/auth/google/login` | Start Google OIDC |
+| `GET` | `/api/v1/auth/google/callback` | Validate state/nonce and create session |
+| `GET` | `/api/v1/auth/me` | Current user |
+| `POST` | `/api/v1/auth/logout` | Revoke session |
+| `GET/PATCH` | `/api/v1/persona` | Read/update investor memory |
+| `GET` | `/api/v1/stocks` | Followed stocks |
+| `POST/DELETE` | `/api/v1/stocks/{ticker}/follow` | Follow or unfollow a ticker |
+| `POST` | `/api/v1/stocks/{ticker}/ingest` | Refresh one ticker's evidence |
+| `POST` | `/api/v1/refresh` | Refresh all followed tickers |
+| `GET` | `/api/v1/sources?ticker=...` | Indexed evidence and source metadata |
+| `GET` | `/api/v1/stocks/{ticker}/graph-facts` | Deterministic graph facts |
+| `GET/POST` | `/api/v1/conversations` | List or create owned conversations |
+| `PATCH` | `/api/v1/conversations/{conversation_id}` | Rename an owned conversation |
+| `GET/POST` | `/api/v1/notes` | List or create owned research notes |
+| `PATCH/DELETE` | `/api/v1/notes/{note_id}` | Update or delete an owned note |
+| `POST` | `/api/v1/chat` | Run the grounded research graph |
+| `GET` | `/api/v1/admin/users` | List users for server-side admins |
+| `POST` | `/api/v1/admin/users/{user_id}/reset-profile` | Reset a user's persona |
+| `POST` | `/api/v1/admin/users/{user_id}/reset-follows` | Reset a user's followed stocks |
+| `DELETE` | `/api/v1/admin/users/{user_id}/conversations` | Delete a user's persisted conversations |
+
+Inputs are schema-validated; authenticated mutations are ownership-scoped and rate-limited. Cookies are `HttpOnly`, `Secure`, and `SameSite=Lax` outside local demo mode.
+
+## Local Setup
+
+Prerequisites: Docker Compose, Node.js 22.13+, and Python 3.12+.
 
 ```bash
 cp .env.example .env
-# Replace POSTGRES_PASSWORD and SESSION_SECRET in .env.
+# Set POSTGRES_PASSWORD and a 32+ character SESSION_SECRET.
 docker compose up --build
 docker compose exec backend alembic upgrade head
 ```
 
-Open `http://localhost:3000`. The API is at `http://localhost:8000`, its docs at
-`http://localhost:8000/docs`, and PostgreSQL at `localhost:5432`.
-
-The local stack intentionally uses demo auth and deterministic research data
-unless the corresponding provider settings are changed. No paid model key is
-required.
-
-### Run services directly
-
-Use Node.js 22.13+ and Python 3.12+.
-
-```bash
-npm ci
-npm run dev:aws
-```
-
-In a second shell:
-
-```bash
-cd backend
-python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-cp .env.example .env
-.venv/bin/uvicorn app.api:app --reload --port 8000
-```
-
-For an in-memory demo, leave `DATABASE_URL` unset. Production refuses this
-fallback and its readiness endpoint verifies connectivity, the migration, and
-the pgvector extension.
-
-## API surface
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` or `/health/live` | Shallow container liveness |
-| `GET` | `/health/ready` | Database, migration, and pgvector readiness |
-| `GET` | `/api/v1/auth/google/config` | OAuth configuration status |
-| `GET` | `/api/v1/auth/google/login` | Start Google OIDC |
-| `GET` | `/api/v1/auth/google/callback` | Validate state/nonce and create session |
-| `GET` | `/api/v1/auth/me` | Current authenticated user |
-| `POST` | `/api/v1/auth/logout` | Revoke current session |
-| `GET/PATCH` | `/api/v1/persona` | Read or update investor memory |
-| `GET` | `/api/v1/stocks` | List followed stocks |
-| `POST` | `/api/v1/stocks/{ticker}/follow` | Follow and idempotently ingest a ticker |
-| `DELETE` | `/api/v1/stocks/{ticker}/follow` | Remove a ticker from the current watchlist |
-| `POST` | `/api/v1/stocks/{ticker}/ingest` | Refresh one ticker's fundamentals and news |
-| `POST` | `/api/v1/refresh` | Automatically refresh every followed ticker and return hydrated quotes |
-| `GET` | `/api/v1/sources?ticker=...` | List indexed sources for a ticker |
-| `POST` | `/api/v1/chat` | Run the contextual, grounded graph |
-
-Compatibility endpoints under `/api/*` support the frontend's compact contract.
-Inputs are schema-validated, authenticated mutations are rate-limited, session
-identifiers are opaque and hashed at rest, and cookies are `HttpOnly`, `Secure`,
-and `SameSite=Lax` outside the local demo.
+Open `http://localhost:3000`; the API is at `http://localhost:8000` and Swagger UI is at `http://localhost:8000/docs`. Local defaults use demo auth and deterministic data; no model key is required. For a no-database backend demo, leave `DATABASE_URL` unset. Production requires the database and readiness checks.
 
 ## Verification
 
 ```bash
-# Frontend
+npm ci
 npm run lint
 npm run typecheck
 npm test
 npm run build:aws
 npm run test:e2e
-npm audit --audit-level=high
+npm audit --omit=dev --audit-level=high
 
-# Backend
 cd backend
 .venv/bin/ruff check .
 .venv/bin/mypy app
 .venv/bin/pytest --cov=app --cov-report=term-missing --cov-fail-under=80
 .venv/bin/pip-audit -r requirements.txt
 
-# Infrastructure
+cd ../
 terraform -chdir=infra fmt -check -recursive
 terraform -chdir=infra init -backend=false
 terraform -chdir=infra validate
+terraform -chdir=infra/bootstrap init -backend=false
+terraform -chdir=infra/bootstrap validate
 ```
 
-CI runs these gates, both Linux/amd64 container builds, the Playwright suite,
-and Terraform bootstrap validation. The backend test suite enforces at least 80%
-coverage and includes grounding, adversarial source content, persona learning,
-ranking, BSE/NSE normalization, failed-provider fallback, ingestion idempotency,
-and concurrent-ingestion cases.
-
-## Google OAuth setup
-
-1. Create a Google Cloud project and an OAuth 2.0 **Web application** client.
-2. Keep the consent screen in testing mode and add these required test users:
-   - `harisankar@sentellent.com`
-   - `naga@sentellent.com`
-3. Set the authorized redirect URI to
-   `https://YOUR_DOMAIN/api/v1/auth/google/callback`.
-4. Store `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a random 32+ character
-   `SESSION_SECRET` in the GitHub `production` environment. Never commit them.
-
-Production Terraform requires an HTTPS `public_base_url` and regional ACM
-certificate. Plain-HTTP OAuth deployment is rejected because secure cookies and
-the authorization-code flow must not be exposed over HTTP.
+CI runs frontend, backend, Playwright, Terraform, dependency-audit, and Linux/amd64 container gates. The backend coverage gate is 80%.
 
 ## AWS and CI/CD
 
-The challenge-sized default uses one task per service, a `db.t4g.micro`, 20 GiB
-of encrypted storage, no NAT gateway, and short CloudWatch retention. AWS will
-still charge for ALB, Fargate, RDS, public IPv4, logs, and data transfer; set a
-budget before applying.
+Terraform provisions a two-AZ VPC, ALB path routing, separate frontend/backend ECS Fargate services, ECR, encrypted non-public RDS PostgreSQL 16, Secrets Manager, CloudWatch, EventBridge scheduled ingestion, least-privilege runtime roles, and regional WAF rate limits for OAuth, chat, and narrow mutation paths. The default challenge-sized configuration is one task per service, `db.t4g.micro`, 20 GiB encrypted gp3, no NAT gateway, and one-day RDS backup retention. AWS charges still apply for ALB, Fargate, RDS, public IPv4, WAF, logs, and transfer.
 
-### 1. Bootstrap state and GitHub OIDC once
+On `main`, GitHub Actions assumes a scoped AWS role through OIDC, builds and scans commit-SHA images, writes runtime secrets to Secrets Manager, runs migrations as an ECS task, applies Terraform, waits for service stability, and smoke-tests the frontend plus liveness/readiness and OAuth configuration routes. Set `AI_PROVIDER=gemini` as a GitHub production variable to enable Gemini; the key remains a secret.
 
-```bash
-cp infra/bootstrap/terraform.tfvars.example infra/bootstrap/terraform.tfvars
-# Set github_repository and account-specific values.
-terraform -chdir=infra/bootstrap init
-terraform -chdir=infra/bootstrap plan
-terraform -chdir=infra/bootstrap apply
-terraform -chdir=infra/bootstrap output
-```
+See [`infra/README.md`](infra/README.md) for bootstrap, variables, rollback, and operational commands.
 
-The bootstrap role trusts only the configured repository's protected
-`production` GitHub environment. No long-lived AWS access keys are stored in
-GitHub.
+## Submission Evidence Checklist
 
-### 2. Configure the GitHub production environment
+- Public HTTPS root showing Google OIDC, a followed ticker, personalized cited answer, evidence rail, and safe unsupported-data response.
+- `/demo` showing deterministic questions and no production-state mutation.
+- Passing `CI` and `Deploy production` workflows for the submitted commit SHA.
+- Healthy ECS services and ALB targets; RDS, ECR scan, EventBridge schedule, WAF, and Secrets Manager resources with values hidden.
+- Google OAuth test users and callback configuration, with credentials redacted.
+- Repository link, deployed URL, and screenshots attached to the required submission form.
 
-Repository/environment variables:
+## Responsible Use and Boundaries
 
-- `AWS_REGION` (normally `ap-south-1`)
-- `AWS_ROLE_ARN`
-- `TF_STATE_BUCKET` and `TF_STATE_KEY`
-- `PROJECT_NAME`
-- `ACM_CERTIFICATE_ARN`
-- `PUBLIC_BASE_URL`, such as `https://stocks.example.com`
+Sentellent is not SEBI-registered investment advice. Data may be delayed, incomplete, syndicated, or unavailable. The seven configured feeds and yfinance are not a complete primary-source record, and the application does not directly ingest NSE/BSE filings. Verify exchange data, company disclosures, and primary filings independently.
 
-Environment secrets:
+No trading is supported: Sentellent never executes trades, connects to a brokerage for execution, gives a guaranteed outcome, or predicts a future price. "Best fit" and similar responses are bounded research rankings over the followed/indexed evidence and stored investor preferences, not recommendations or promises.
 
-- `SESSION_SECRET` (required)
-- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (required for reviewer login)
-- `OPENAI_API_KEY` (optional)
-- `GEMINI_API_KEY` (optional; set the `AI_PROVIDER` repository variable to `gemini` to enable it)
-
-Protect the `production` environment so only `main` can deploy. Point the public
-domain at the ALB before testing Google OAuth.
-
-### 3. Push to main
-
-The deployment workflow:
-
-1. Runs every CI quality gate.
-2. Assumes the scoped deploy role through GitHub OIDC.
-3. Builds and scans commit-SHA frontend/backend images in ECR.
-4. Registers the new backend revision without shifting live traffic.
-5. runs `alembic upgrade head` as a one-off ECS task and checks its exit code.
-6. Applies the saved Terraform plan and waits for ECS stability.
-7. Smoke-tests the UI, liveness/readiness, and same-origin OAuth config route.
-
-See `infra/README.md` for resource details, optional private-subnet/NAT mode,
-manual deployment, rollback, and operational commands.
-
-## Submission evidence checklist
-
-Capture evidence only after a real successful deployment:
-
-- Public HTTPS app showing a signed-in reviewer, followed ticker, personalized
-  answer, citation panel, and safe unsupported-data response.
-- GitHub Actions `CI` jobs and `Deploy production` workflow passing for the same
-  commit SHA.
-- ECS cluster with both services stable and ALB target groups healthy.
-- RDS PostgreSQL instance, ECR images/scans, EventBridge ingestion schedule, and
-  Secrets Manager entries with secret values hidden.
-- Google consent-screen test users showing both Sentellent addresses.
-
-Submit the GitHub repository link, live HTTPS URL, and those screenshots at
-[the Sentellent submission form](https://forms.gle/qWxabTxLjEkJ2LcEA).
-
-## Responsible-use note
-
-Artha is a research demonstration, not SEBI-registered investment advice. Data
-can be delayed or incomplete; users should verify primary filings and exchange
-data before making financial decisions.
-
-One deliberate challenge-scope boundary remains: a company symbol is the stock
-identity, with NSE/BSE stored as an attribute. A user can select either exchange,
-and refreshes preserve it, but simultaneous NSE and BSE listings with the same
-normalized symbol are not stored as separate holdings. A production brokerage
-integration should migrate the key to `(ticker, exchange)` or an exchange-issued
-instrument ID.
+The current challenge-scope identity is `(ticker)` with NSE/BSE as an attribute. It does not store simultaneous NSE and BSE listings of the same normalized symbol as separate holdings; a production brokerage integration should use `(ticker, exchange)` or an exchange-issued instrument ID.
