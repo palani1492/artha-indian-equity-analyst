@@ -20,9 +20,9 @@ export const test = base.extend({
 export { expect };
 
 export async function openDemoWorkspace(page: Page) {
-  await page.goto("/");
+  await page.goto("/demo");
   await expect(page.getByText("Sample data", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("Live API unavailable. Showing the deterministic sample dataset."),
+    page.getByText("Deterministic demo mode. No live data or production state will be changed."),
   ).toBeVisible();
 }

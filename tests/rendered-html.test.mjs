@@ -45,9 +45,20 @@ test("server-renders the Artha Indian equity research workspace", async () => {
   assert.doesNotMatch(html, /[—–]/);
 });
 
+test("server-renders an isolated deterministic demo route", async () => {
+  const response = await render("/demo");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /Deterministic demo mode/);
+  assert.match(html, /Sample data/);
+  assert.match(html, /Sign in with Google/);
+});
+
 test("ships real interaction, fallback, and inclusive state handling", async () => {
-  const [page, client, api, data, globalCss, shellCss, researchCss, contextCss, responsiveCss, layout, packageJson] = await Promise.all([
+  const [page, demoPage, client, api, data, globalCss, shellCss, researchCss, contextCss, responsiveCss, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/demo/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/ArthaWorkspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/artha-api.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/artha-data.ts", import.meta.url), "utf8"),
@@ -62,6 +73,7 @@ test("ships real interaction, fallback, and inclusive state handling", async () 
   const css = `${globalCss}\n${shellCss}\n${researchCss}\n${contextCss}\n${responsiveCss}`;
 
   assert.match(page, /ArthaWorkspace/);
+  assert.match(demoPage, /<ArthaWorkspace demoMode \/>/);
   assert.match(api, /fetch\(/);
   assert.match(client, /\/api\/v1\/chat/);
   assert.match(client, /\/api\/chat/);

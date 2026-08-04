@@ -57,14 +57,17 @@ function scopedStorageKey(prefix: string, user: AuthUser | null): string {
   return `${prefix}:${encodeURIComponent(identity)}`;
 }
 
-export function ArthaWorkspace() {
+export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [stocks, setStocks] = useState<Stock[]>(DEMO_STOCKS);
   const [activeKey, setActiveKey] = useState("NSE:TCS");
+  const [scopeKeys, setScopeKeys] = useState<string[]>([]);
   const [persona, setPersona] = useState<Persona>(DEMO_PERSONA);
   const [tickerSources, setTickerSources] = useState<ResearchSource[]>(DEMO_SOURCES);
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
-  const [connection, setConnection] = useState<ConnectionMode>("connecting");
-  const [notice, setNotice] = useState("");
+  const [connection, setConnection] = useState<ConnectionMode>(demoMode ? "demo" : "connecting");
+  const [notice, setNotice] = useState(
+    demoMode ? "Deterministic demo mode. No live data or production state will be changed." : "",
+  );
   const [question, setQuestion] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [followTicker, setFollowTicker] = useState("");
@@ -83,8 +86,10 @@ export function ArthaWorkspace() {
   );
   const [pendingEvidenceScope, setPendingEvidenceScope] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemePreference>("system");
-  const [authState, setAuthState] = useState<AuthState>("checking");
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authState, setAuthState] = useState<AuthState>(demoMode ? "demo" : "checking");
+  const [user, setUser] = useState<AuthUser | null>(
+    demoMode ? { name: "Sample profile", email: "", initials: "SP" } : null,
+  );
   const [clock, setClock] = useState(() => Date.now());
   const [welcomeTitle, setWelcomeTitle] = useState("Your research desk is ready.");
   const researchRequestId = useRef(0);
@@ -92,6 +97,10 @@ export function ArthaWorkspace() {
   const activeStock = useMemo(
     () => stocks.find((stock) => `${stock.exchange}:${stock.symbol}` === activeKey) ?? stocks[0],
     [activeKey, stocks],
+  );
+  const scopedStocks = useMemo(
+    () => (scopeKeys.length ? stocks.filter((stock) => scopeKeys.includes(`${stock.exchange}:${stock.symbol}`)) : stocks),
+    [scopeKeys, stocks],
   );
   const visibleSources = pendingEvidenceScope ? [] : answerEvidence?.sources ?? tickerSources;
   const visibleCitations = useMemo(() => answerEvidence?.citations ?? [], [answerEvidence]);
@@ -138,6 +147,9 @@ export function ArthaWorkspace() {
   }, []);
 
   useEffect(() => {
+    if (demoMode) {
+      return;
+    }
     let active = true;
     const localStateFrame = window.requestAnimationFrame(() => {
       const storedTheme = window.localStorage.getItem("artha-theme");
@@ -257,7 +269,7 @@ export function ArthaWorkspace() {
     };
     // Initial hydration is intentionally one-shot; later changes use the refresh loop below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [demoMode]);
 
   useEffect(() => {
     if (connection !== "live" || authState !== "authenticated" || stocks.length === 0) {
@@ -298,6 +310,7 @@ export function ArthaWorkspace() {
   function persistPersona(nextPersona: Persona) {
     setPersona(nextPersona);
     setPersonaDraft(nextPersona);
+    if (demoMode) return;
     window.localStorage.setItem(
       scopedStorageKey("artha-persona", user),
       JSON.stringify(nextPersona),
@@ -335,11 +348,14 @@ export function ArthaWorkspace() {
       createdAt: new Date().toISOString(),
     };
     const nextPersona = inferPersona(cleanQuestion, persona);
-    const requestedTicker = questionTicker(cleanQuestion, activeStock?.symbol);
+    const scopedTickerSymbols = scopedStocks.map((stock) => stock.symbol);
+    const requestedTicker = scopedStocks.length === 1
+      ? questionTicker(cleanQuestion, scopedStocks[0]?.symbol)
+      : null;
     const evidenceScope = answerEvidenceScope(
       cleanQuestion,
       requestedTicker,
-      stocks,
+      scopedStocks,
     );
     if (nextPersona !== persona) persistPersona(nextPersona);
     setMessages((current) => [...current, userMessage]);
@@ -358,6 +374,7 @@ export function ArthaWorkspace() {
           body: JSON.stringify({
             message: cleanQuestion,
             ticker: requestedTicker,
+            tickers: scopedTickerSymbols,
             persona: nextPersona,
           }),
         });
@@ -610,7 +627,7 @@ export function ArthaWorkspace() {
     const nextTheme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
     setTheme(nextTheme);
     applyTheme(nextTheme);
-    window.localStorage.setItem("artha-theme", nextTheme);
+    if (!demoMode) window.localStorage.setItem("artha-theme", nextTheme);
   }
 
   function revealSource(sourceId: string) {
@@ -751,6 +768,35 @@ export function ArthaWorkspace() {
                 </small>
               </div>
             ) : null}
+          </div>
+
+          <div className="research-scope" aria-label="Research scope">
+            <span className="eyebrow">Research scope</span>
+            <button
+              className={`scope-chip ${scopeKeys.length === 0 ? "is-selected" : ""}`}
+              type="button"
+              aria-pressed={scopeKeys.length === 0}
+              onClick={() => setScopeKeys([])}
+            >
+              All followed
+            </button>
+            {stocks.map((stock) => {
+              const key = `${stock.exchange}:${stock.symbol}`;
+              const selected = scopeKeys.includes(key);
+              return (
+                <button
+                  className={`scope-chip ${selected ? "is-selected" : ""}`}
+                  type="button"
+                  key={`scope-${key}`}
+                  aria-pressed={selected}
+                  onClick={() => setScopeKeys((current) =>
+                    selected ? current.filter((item) => item !== key) : [...current, key],
+                  )}
+                >
+                  {stock.symbol}
+                </button>
+              );
+            })}
           </div>
 
           {notice ? (
@@ -947,7 +993,9 @@ export function ArthaWorkspace() {
       {tutorialOpen ? (
         <OnboardingDialog
           onClose={() => {
-            window.localStorage.setItem(scopedStorageKey("artha-tutorial-seen", user), "1");
+            if (!demoMode) {
+              window.localStorage.setItem(scopedStorageKey("artha-tutorial-seen", user), "1");
+            }
             setTutorialOpen(false);
             if (openMemoryAfterTutorial) {
               setPersonaOpen(true);
@@ -1061,6 +1109,14 @@ function AccountControl({
     );
   }
 
+  if (state === "demo") {
+    return (
+      <a className="sign-in-link" href={`${API_ORIGIN}/api/v1/auth/google/login`}>
+        Sign in with Google
+      </a>
+    );
+  }
+
   if (state === "checking") {
     return <span className="account-checking" aria-label="Checking account">Account</span>;
   }
@@ -1072,14 +1128,10 @@ function AccountControl({
       </summary>
       <div className="account-popover">
         <strong>{user?.name ?? "Profile"}</strong>
-        {state === "demo" ? (
-          <span>Local sample profile</span>
-        ) : (
-          <>
-            <span>{user?.email}</span>
-            <button type="button" onClick={onLogout}>Sign out</button>
-          </>
-        )}
+        <>
+          <span>{user?.email}</span>
+          <button type="button" onClick={onLogout}>Sign out</button>
+        </>
       </div>
     </details>
   );

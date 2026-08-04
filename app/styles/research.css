@@ -55,6 +55,39 @@
   font-size: 9.5px;
 }
 
+.research-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 22px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.research-scope .eyebrow {
+  margin-right: 4px;
+}
+
+.scope-chip {
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.scope-chip:hover,
+.scope-chip:focus-visible,
+.scope-chip.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
 .context-notice {
   display: flex;
   align-items: center;

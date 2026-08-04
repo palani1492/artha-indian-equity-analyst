@@ -24,6 +24,16 @@ test.describe("Artha critical research flows", () => {
     await expect(page.getByLabel("RELIANCE current quote")).toContainText("₹1,398.40");
   });
 
+  test("keeps demo mode isolated and links to live Google sign-in", async ({ page }) => {
+    await openDemoWorkspace(page);
+
+    await expect(page.getByRole("link", { name: "Sign in with Google" })).toHaveAttribute(
+      "href",
+      /\/api\/v1\/auth\/google\/login$/,
+    );
+    await expect(page.locator(".context-notice")).toContainText("No live data");
+  });
+
   test("answers a research question with citations backed by visible sources", async ({ page }) => {
     await openDemoWorkspace(page);
 
@@ -82,7 +92,7 @@ test.describe("Artha critical research flows", () => {
     await expect(page.locator("#source-tcs-results")).toHaveCount(0);
   });
 
-  test("updates and persists investor memory", async ({ page }) => {
+  test("updates investor memory without persisting outside the demo session", async ({ page }) => {
     await openDemoWorkspace(page);
 
     const memory = page.locator("#investor-memory");
@@ -103,8 +113,8 @@ test.describe("Artha critical research flows", () => {
 
     await page.reload();
     await expect(page.getByText("Sample data", { exact: true })).toBeVisible();
-    await expect(memory).toContainText("Conservative");
-    await expect(memory).toContainText("5+ years");
+    await expect(memory).toContainText("Moderate");
+    await expect(memory).toContainText("3 to 5 years");
   });
 
   test("follows a new BSE ticker and makes it active", async ({ page }) => {

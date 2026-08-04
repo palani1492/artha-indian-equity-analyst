@@ -35,6 +35,7 @@ class AgentState(TypedDict, total=False):
     is_comparison: bool
     is_recent: bool
     requested_tickers: tuple[str, ...]
+    scope_tickers: tuple[str, ...]
     recommendations: tuple[RankedStock, ...]
     sources: tuple[SourceDocument, ...]
     citations: tuple[Citation, ...]
@@ -73,10 +74,20 @@ class EquityResearchAgent:
         self._graph = graph.compile()
 
     async def chat(
-        self, user_id: str, message: str, ticker: str | None = None
+        self,
+        user_id: str,
+        message: str,
+        ticker: str | None = None,
+        *,
+        scope_tickers: tuple[str, ...] = (),
     ) -> ChatResult:
         state = await self._graph.ainvoke(
-            {"user_id": user_id, "message": message, "ticker": ticker}
+            {
+                "user_id": user_id,
+                "message": message,
+                "ticker": ticker,
+                "scope_tickers": scope_tickers,
+            }
         )
         return state["result"]
 
@@ -130,12 +141,14 @@ class EquityResearchAgent:
             "memory_update",
             "memory_question",
             "help",
+            "out_of_scope",
             "unsupported",
         }:
             return {"sources": (), "requested_tickers": ()}
         followed = await self._repository.list_followed_tickers(state["user_id"])
         stocks = await self._repository.list_stocks_for_user(state["user_id"])
-        tickers = self._requested_tickers(
+        scope_tickers = state.get("scope_tickers", ())
+        tickers = scope_tickers or self._requested_tickers(
             state["message"], followed, stocks, state.get("ticker")
         )
         if not tickers:
@@ -181,6 +194,15 @@ class EquityResearchAgent:
             return {"draft": self._memory_profile_answer(persona), "citations": ()}
         if answer_kind == "help":
             return {"draft": self._help_answer(), "citations": ()}
+        if answer_kind == "out_of_scope":
+            return {
+                "draft": (
+                    "That request is outside Artha's research scope. I can help with "
+                    "Indian equities, followed tickers, investor preferences, "
+                    "fundamentals, news, comparisons, and cited research."
+                ),
+                "citations": (),
+            }
         if answer_kind == "unsupported":
             return {
                 "draft": "I am focused on Indian-equity research, followed tickers, cited fundamentals/news, and investor memory. Ask me to compare followed stocks, summarize recent changes, explain a metric, or remember your investor preferences.",
@@ -210,6 +232,7 @@ class EquityResearchAgent:
             "memory_update",
             "memory_question",
             "help",
+            "out_of_scope",
             "unsupported",
         }:
             persona = await self._repository.get_persona(state["user_id"])
@@ -496,6 +519,24 @@ class EquityResearchAgent:
         if any(
             phrase in normalized
             for phrase in (
+                "write a poem",
+                "write me a poem",
+                "write poetry",
+                "tell me a joke",
+                "what is the weather",
+                "write code",
+                "javascript code",
+                "python code",
+                "movie recommendation",
+                "recommend a movie",
+                "write a song",
+                "translate this",
+            )
+        ):
+            return "out_of_scope"
+        if any(
+            phrase in normalized
+            for phrase in (
                 "guaranteed return",
                 "insider",
                 "tomorrow's price",
@@ -526,6 +567,7 @@ class EquityResearchAgent:
             "memory_update": "Memory updated",
             "memory_question": "Investor profile",
             "help": "How to use Artha",
+            "out_of_scope": "Outside Artha's scope",
             "unsupported": "Outside Artha's evidence",
             "risk_summary": "Risk summary",
             "comparison": "Comparison",

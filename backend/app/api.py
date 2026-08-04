@@ -25,6 +25,7 @@ from app.domain.models import (
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     ticker: str | None = None
+    tickers: tuple[str, ...] = Field(default=(), max_length=10)
 
     @field_validator("message")
     @classmethod
@@ -38,6 +39,12 @@ class ChatRequest(BaseModel):
     @classmethod
     def clean_ticker(cls, value: str | None) -> str | None:
         return normalize_ticker(value)[0] if value else None
+
+    @field_validator("tickers")
+    @classmethod
+    def clean_tickers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(dict.fromkeys(normalize_ticker(value)[0] for value in values))
+        return normalized
 
 
 class TickerRequest(BaseModel):
@@ -379,11 +386,8 @@ def create_app(container: Container | None = None) -> FastAPI:
         # least one indexed snapshot before retrieval, while keeping upstream
         # failures isolated to that ticker.
         followed_tickers = await dependencies.repository.list_followed_tickers(user_id)
-        candidate_tickers = tuple(
-            dict.fromkeys(
-                ((payload.ticker,) if payload.ticker else ()) + followed_tickers
-            )
-        )
+        requested_scope = payload.tickers or ((payload.ticker,) if payload.ticker else ())
+        candidate_tickers = tuple(dict.fromkeys(requested_scope + followed_tickers))
         for ticker in candidate_tickers:
             if await dependencies.repository.count_documents(ticker) > 0:
                 continue
@@ -399,7 +403,12 @@ def create_app(container: Container | None = None) -> FastAPI:
                 ValueError,
             ):
                 continue
-        return await dependencies.agent.chat(user_id, payload.message, payload.ticker)
+        return await dependencies.agent.chat(
+            user_id,
+            payload.message,
+            payload.ticker,
+            scope_tickers=payload.tickers,
+        )
 
     @app.post("/api/v1/chat", response_model=ChatResult)
     async def chat_v1(
