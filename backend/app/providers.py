@@ -17,6 +17,7 @@ from app.domain.models import (
     DocumentKind,
     Exchange,
     SourceDocument,
+    SourceTier,
     Stock,
     normalize_ticker,
 )
@@ -276,7 +277,9 @@ class LiveIndianMarketDataProvider:
         ) as client:
             response = await client.get(url, headers={"User-Agent": self._user_agent})
             response.raise_for_status()
-        return self._parse_feed(response.content, stock)
+        return self._parse_feed(
+            response.content, stock, source_tier=self._feed_source_tier(url)
+        )
 
     async def _safe_fetch_feed(
         self, url: str, stock: Stock
@@ -293,7 +296,12 @@ class LiveIndianMarketDataProvider:
                 await asyncio.sleep(self._minimum_interval - elapsed)
             self._last_request_at = time.monotonic()
 
-    def _parse_feed(self, payload: bytes, stock: Stock) -> tuple[SourceDocument, ...]:
+    def _parse_feed(
+        self,
+        payload: bytes,
+        stock: Stock,
+        source_tier: SourceTier = SourceTier.SECONDARY,
+    ) -> tuple[SourceDocument, ...]:
         root = ET.fromstring(payload)
         matches: list[SourceDocument] = []
         aliases = self._company_aliases(stock)
@@ -329,6 +337,7 @@ class LiveIndianMarketDataProvider:
                     url=self.canonicalize_url(raw_url),
                     content=combined,
                     published_at=published_at,
+                    source_tier=source_tier,
                     sentiment=self._sentiment(combined),
                     impact="medium",
                     event_tag="rss-news",
@@ -336,6 +345,15 @@ class LiveIndianMarketDataProvider:
                 )
             )
         return tuple(matches)
+
+    @staticmethod
+    def _feed_source_tier(url: str) -> SourceTier:
+        hostname = (urlsplit(url).hostname or "").casefold().removeprefix("www.")
+        return (
+            SourceTier.PRIMARY
+            if hostname == "sebi.gov.in" or hostname.endswith(".sebi.gov.in")
+            else SourceTier.SECONDARY
+        )
 
     @classmethod
     def _company_aliases(cls, stock: Stock) -> tuple[str, ...]:
@@ -382,6 +400,7 @@ class LiveIndianMarketDataProvider:
             published_at=datetime.now(UTC),
             event_tag="live-fundamentals",
             dedupe_key=f"{stock.ticker}:fundamentals",
+            source_tier=SourceTier.SECONDARY,
         )
 
     @staticmethod

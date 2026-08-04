@@ -5,10 +5,14 @@ from typing import Any, cast
 import pytest
 
 from app.domain.models import (
+    Citation,
     ConversationMessage,
+    DocumentKind,
     InvestorPersona,
     ResearchConversation,
     ResearchNote,
+    SourceDocument,
+    SourceTier,
 )
 from app.repositories.memory import InMemoryResearchRepository
 from app.repositories.sql import SqlAlchemyResearchRepository, UserRow
@@ -81,6 +85,36 @@ async def test_in_memory_research_data_isolated_by_user() -> None:
     assert await repository.get_note("user-2", note.id) is None
     assert await repository.delete_note("user-2", note.id) is False
     assert await repository.get_note("user-1", note.id) == note
+
+
+@pytest.mark.asyncio
+async def test_in_memory_research_citations_preserve_source_tier() -> None:
+    repository = InMemoryResearchRepository()
+    now = datetime.now(UTC)
+    source = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.NEWS,
+        title="SEBI disclosure",
+        url="https://www.sebi.gov.in/tcs-disclosure",
+        content="TCS disclosure.",
+        published_at=now,
+        source_tier=SourceTier.PRIMARY,
+    )
+    conversation = ResearchConversation(
+        id="tier-conversation", user_id="user-1", title="TCS", created_at=now, updated_at=now
+    )
+    citation = Citation(index=1, document_id=source.id, title=source.title, url=source.url, source_tier=source.source_tier)
+    await repository.create_conversation(conversation)
+    await repository.add_conversation_message(
+        ConversationMessage(
+            id="tier-message", conversation_id=conversation.id, role="assistant", text="SEBI disclosure [1].",
+            citations=(citation,), created_at=now,
+        )
+    )
+
+    messages = await repository.list_conversation_messages("user-1", conversation.id)
+
+    assert messages[0].citations[0].source_tier is SourceTier.PRIMARY
 
 
 @pytest.mark.asyncio

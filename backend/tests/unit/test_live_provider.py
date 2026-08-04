@@ -1,7 +1,7 @@
 from datetime import UTC
 from decimal import Decimal
 
-from app.domain.models import Exchange, Stock
+from app.domain.models import Exchange, SourceTier, Stock
 from app.providers import LiveIndianMarketDataProvider
 
 
@@ -44,6 +44,20 @@ def test_live_provider_parses_only_relevant_rss_items_and_tags_sentiment() -> No
     assert str(documents[0].url) == "https://news.example.test/tcs"
     assert documents[0].sentiment > 0
     assert documents[0].published_at.tzinfo is UTC
+    assert documents[0].source_tier is SourceTier.SECONDARY
+
+
+def test_sebi_feed_entries_are_primary() -> None:
+    provider = LiveIndianMarketDataProvider(rss_feeds=())
+    payload = b"""<rss><channel>
+      <item><title>TCS disclosure</title><description>Tata Consultancy Services filing.</description>
+        <link>https://www.sebi.gov.in/tcs-disclosure</link>
+        <pubDate>Fri, 01 Aug 2026 09:00:00 +0000</pubDate></item>
+    </channel></rss>"""
+
+    documents = provider._parse_feed(payload, _stock(), source_tier=SourceTier.PRIMARY)
+
+    assert documents[0].source_tier is SourceTier.PRIMARY
 
 
 def test_live_provider_matches_company_aliases_in_rss_items() -> None:
@@ -66,6 +80,7 @@ def test_live_fundamentals_document_contains_groundable_inr_values() -> None:
     assert "INR 4125.50" in document.content
     assert "Debt-to-equity is 0.1" in document.content
     assert document.event_tag == "live-fundamentals"
+    assert document.source_tier is SourceTier.SECONDARY
     assert (
         document.id == LiveIndianMarketDataProvider._fundamentals_document(_stock()).id
     )

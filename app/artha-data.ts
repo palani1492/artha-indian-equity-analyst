@@ -40,12 +40,16 @@ export type ResearchSource = {
   publishedAt?: string;
   url: string;
   excerpt: string;
+  sourceTier: SourceTier;
 };
+
+export type SourceTier = "primary" | "company" | "secondary" | "contextual";
 
 export type Citation = {
   sourceId: string;
   label: string;
   source?: ResearchSource;
+  sourceTier?: SourceTier;
 };
 
 export type ChatMessage = {
@@ -175,6 +179,7 @@ export const DEMO_SOURCES: ResearchSource[] = [
     url: "https://www.screener.in/company/TCS/consolidated/",
     excerpt:
       "Reference row for revenue, return ratios, balance sheet leverage, and valuation context.",
+    sourceTier: "secondary",
   },
   {
     id: "tcs-results",
@@ -186,6 +191,7 @@ export const DEMO_SOURCES: ResearchSource[] = [
     url: "https://www.tcs.com/who-we-are/investor-relations/financial-statements",
     excerpt:
       "Company-reported operating performance, deal commentary, and management outlook.",
+    sourceTier: "company",
   },
   {
     id: "tcs-news",
@@ -197,6 +203,7 @@ export const DEMO_SOURCES: ResearchSource[] = [
     url: "https://www.moneycontrol.com/india/stockpricequote/computers-software/tataconsultancyservices/TCS",
     excerpt:
       "Recent market context used to compare demand signals with the fundamental record.",
+    sourceTier: "secondary",
   },
 ];
 
