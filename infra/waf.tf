@@ -93,16 +93,84 @@ resource "aws_wafv2_web_acl" "application" {
         limit              = var.mutation_api_rate_limit
 
         scope_down_statement {
-          regex_pattern_set_reference_statement {
-            arn = aws_wafv2_regex_pattern_set.mutation_api.arn
-
-            field_to_match {
-              uri_path {}
+          or_statement {
+            statement {
+              byte_match_statement {
+                field_to_match {
+                  uri_path {}
+                }
+                positional_constraint = "EXACTLY"
+                search_string         = "/api/v1/chat"
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
             }
-
-            text_transformation {
-              priority = 0
-              type     = "NONE"
+            statement {
+              byte_match_statement {
+                field_to_match {
+                  uri_path {}
+                }
+                positional_constraint = "EXACTLY"
+                search_string         = "/api/v1/refresh"
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+            statement {
+              byte_match_statement {
+                field_to_match {
+                  uri_path {}
+                }
+                positional_constraint = "STARTS_WITH"
+                search_string         = "/api/v1/stocks/"
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+            statement {
+              byte_match_statement {
+                field_to_match {
+                  uri_path {}
+                }
+                positional_constraint = "EXACTLY"
+                search_string         = "/api/v1/persona"
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+            statement {
+              byte_match_statement {
+                field_to_match {
+                  uri_path {}
+                }
+                positional_constraint = "EXACTLY"
+                search_string         = "/api/v1/notes"
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+            statement {
+              byte_match_statement {
+                field_to_match {
+                  uri_path {}
+                }
+                positional_constraint = "EXACTLY"
+                search_string         = "/api/v1/conversations"
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
             }
           }
         }
@@ -123,21 +191,6 @@ resource "aws_wafv2_web_acl" "application" {
   }
 
   tags = { Name = local.name }
-}
-
-resource "aws_wafv2_regex_pattern_set" "mutation_api" {
-  name  = "${local.name}-mutation-api"
-  scope = "REGIONAL"
-
-  dynamic "regular_expression" {
-    for_each = var.mutation_api_path_patterns
-
-    content {
-      regex_string = regular_expression.value
-    }
-  }
-
-  tags = { Name = "${local.name}-mutation-api" }
 }
 
 resource "aws_wafv2_web_acl_association" "application" {
