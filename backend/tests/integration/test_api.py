@@ -488,7 +488,13 @@ def test_complex_question_states_limitation_when_followed_data_is_insufficient(
     assert body["grounded"] is True
     assert body["recommendations"] == []
     assert "Only 0 of the requested minimum 3 stocks fit" in body["answer"]
-    assert body["metadata"]["universe"] == "followed/indexed"
+    assert body["metadata"]["universe"] == "followed + on-demand directory"
+    assert body["metadata"]["on_demand_indexed_tickers"] == ["INFY"]
+    assert body["metadata"]["on_demand_failed_tickers"] == [
+        "HCLTECH",
+        "TECHM",
+        "WIPRO",
+    ]
 
 
 def test_persona_patch_validates_and_updates_fields(client, auth_headers) -> None:

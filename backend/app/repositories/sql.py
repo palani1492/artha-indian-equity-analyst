@@ -294,6 +294,13 @@ class SqlAlchemyResearchRepository:
                 self._stock(row) for row in (await session.scalars(query)).all()
             )
 
+    async def list_all_stocks(self) -> tuple[Stock, ...]:
+        query = select(StockRow).order_by(StockRow.ticker)
+        async with self._sessions() as session:
+            return tuple(
+                self._stock(row) for row in (await session.scalars(query)).all()
+            )
+
     async def has_document_hash(self, ticker: str, content_hash: str) -> bool:
         query = (
             select(DocumentRow.id)
