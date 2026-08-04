@@ -3,12 +3,17 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from itertools import combinations
 
 from app.domain.models import Stock
 
 _COUNT_RANGE = re.compile(r"\b(\d+)\s*(?:to|-)\s*(\d+)\b", re.IGNORECASE)
-_COUNT_MAX = re.compile(r"\b(?:up to|at most|max(?:imum)?(?: of)?)\s*(\d+)\b", re.IGNORECASE)
-_BUDGET = re.compile(r"(?:\binr\b|₹|\brs\.?\b)\s*([\d,]+(?:\.\d+)?)\s*(k|lakh)?", re.IGNORECASE)
+_COUNT_MAX = re.compile(
+    r"\b(?:up to|at most|max(?:imum)?(?: of)?)\s*(\d+)\b", re.IGNORECASE
+)
+_BUDGET = re.compile(
+    r"(?:\binr\b|₹|\brs\.?\b)\s*([\d,]+(?:\.\d+)?)\s*(k|lakh)?", re.IGNORECASE
+)
 _SECTOR_ALIASES = {
     "technology": "IT",
     "tech": "IT",
@@ -23,6 +28,8 @@ _SECTOR_ALIASES = {
     "pharma": "Pharma",
     "healthcare": "Healthcare",
 }
+_MAX_ALLOCATION_CANDIDATES = 18
+_MAX_ALLOCATION_COUNT = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +71,12 @@ def parse_complex_question(message: str) -> ComplexQuestionConstraints | None:
     )
     profile_intent = any(
         phrase in normalized
-        for phrase in ("my investor profile", "my profile", "investor profile", "fit my")
+        for phrase in (
+            "my investor profile",
+            "my profile",
+            "investor profile",
+            "fit my",
+        )
     )
     recommendation_intent = any(
         phrase in normalized
@@ -95,8 +107,7 @@ def filter_candidates(
         if stock.price_inr > 0
         and (sector is None or stock.sector.casefold() == sector)
         and (
-            constraints.budget_inr is None
-            or stock.price_inr <= constraints.budget_inr
+            constraints.budget_inr is None or stock.price_inr <= constraints.budget_inr
         )
     )
 
@@ -107,25 +118,39 @@ def allocate_budget(
 ) -> AllocationResult:
     if constraints.budget_inr is None:
         chosen = tuple(candidates[: constraints.max_count])
-        return AllocationResult(chosen, sum((stock.price_inr for stock in chosen), Decimal(0)))
+        return AllocationResult(
+            chosen, sum((stock.price_inr for stock in chosen), Decimal(0))
+        )
 
-    remaining = constraints.budget_inr
-    selected: list[Stock] = []
-    for stock in candidates:
-        if len(selected) >= constraints.max_count:
-            break
-        if stock.price_inr <= remaining:
-            selected.append(stock)
-            remaining -= stock.price_inr
-    total = constraints.budget_inr - remaining
-    shortfall = None
+    bounded_candidates = tuple(candidates[:_MAX_ALLOCATION_CANDIDATES])
+    bounded_max_count = min(constraints.max_count, _MAX_ALLOCATION_COUNT)
+    best_indices: tuple[int, ...] = ()
+    best_key: tuple[int, tuple[int, ...]] = (0, ())
+    for count in range(1, bounded_max_count + 1):
+        for indices in combinations(range(len(bounded_candidates)), count):
+            total = sum(
+                (bounded_candidates[index].price_inr for index in indices),
+                Decimal(0),
+            )
+            if total <= constraints.budget_inr:
+                # Candidates arrive ranked by score and coverage; the index tuple
+                # keeps that preference deterministic among equally sized subsets.
+                candidate_key = (count, indices)
+                if candidate_key[0] > best_key[0] or (
+                    candidate_key[0] == best_key[0] and candidate_key[1] < best_key[1]
+                ):
+                    best_indices = indices
+                    best_key = candidate_key
+
+    selected = tuple(bounded_candidates[index] for index in best_indices)
+    total = sum((stock.price_inr for stock in selected), Decimal(0))
     if len(selected) < constraints.min_count:
         shortfall = (
             f"Only {len(selected)} of the requested minimum {constraints.min_count} "
             f"stocks fit the INR {constraints.budget_inr} total budget."
         )
         return AllocationResult((), Decimal(0), shortfall)
-    return AllocationResult(tuple(selected), total)
+    return AllocationResult(selected, total)
 
 
 def _parse_budget(match: re.Match[str]) -> Decimal | None:
