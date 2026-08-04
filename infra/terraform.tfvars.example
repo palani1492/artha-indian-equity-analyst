@@ -19,6 +19,24 @@ backend_desired_count       = 1
 service_max_count           = 2
 ingestion_schedule_expression = "rate(6 hours)"
 oauth_callback_rate_limit      = 100
+chat_rate_limit                = 60
+mutation_api_rate_limit        = 120
+
+# AWS WAF regex patterns matched against URI paths. Keep these narrow and
+# anchored; the stocks pattern intentionally includes descendant paths.
+mutation_api_path_patterns = [
+  "^/api/v1/chat$",
+  "^/api/v1/refresh$",
+  "^/api/v1/stocks/.*$",
+  "^/api/v1/persona$",
+  "^/api/v1/notes$",
+  "^/api/v1/conversations$",
+]
+
+# Safe production defaults: seven days of backups, deletion protection, and a
+# final snapshot named sentellent-production-final on intentional teardown.
+database_backup_retention_days = 7
+database_deletion_protection   = true
 
 # Server-side admin allowlist. Do not expose this as frontend configuration.
 backend_environment = {

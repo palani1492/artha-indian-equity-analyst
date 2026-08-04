@@ -20,7 +20,7 @@ security groups allow inbound traffic exclusively from the ALB. Set
 - Encrypted RDS PostgreSQL 16 with an AWS-managed master credential secret
 - A separate Secrets Manager container for OAuth, session, and optional OpenAI/Gemini credentials
 - CloudWatch log groups, Container Insights, and basic ALB/database alarms
-- Regional AWS WAF rate limiting on the Google OAuth callback
+- Regional AWS WAF rate limiting on the Google OAuth callback, chat, and narrow expensive/security-sensitive mutation paths
 - EventBridge Scheduler invoking the idempotent ingestion CLI as a one-off ECS task
 - Least-privilege runtime, execution, scheduler, and GitHub OIDC roles with a mandatory runtime permissions boundary
 - S3 remote state with versioning, encryption, public-access blocking, and native lock files
@@ -115,12 +115,16 @@ Important production variables:
 | `certificate_arn` | required | Enables HTTPS on the ALB and redirects HTTP |
 | `public_base_url` | required | Canonical HTTPS origin mapped to the ALB and used for OAuth |
 | `enable_nat_gateway` | `false` | Places ECS tasks in private subnets; adds a fixed NAT charge |
-| `database_deletion_protection` | `false` | Turn on after the first successful production deployment |
+| `database_backup_retention_days` | `7` | Automated RDS backup retention in days; AWS supports 1-35 |
+| `database_deletion_protection` | `true` | Prevents accidental RDS deletion; disable only for an intentional teardown |
 | `image_tag` | `latest` | CI always overrides with the immutable commit SHA |
 | `ingestion_schedule_expression` | `rate(6 hours)` | Scheduled refresh cadence |
 | `ingestion_schedule_enabled` | `true` | Enables or pauses refresh jobs |
 | `ingestion_command` | `-m app.jobs.ingest --all-followed` | Scheduled container command (distroless Python entrypoint) |
 | `oauth_callback_rate_limit` | `100` | Per-IP OAuth callback limit in each five-minute WAF window |
+| `chat_rate_limit` | `60` | Per-IP chat limit in each five-minute WAF window |
+| `mutation_api_rate_limit` | `120` | Per-IP limit for configured expensive/security-sensitive mutation paths in each five-minute WAF window |
+| `mutation_api_path_patterns` | six narrow regex patterns | AWS WAF regex patterns for `/api/v1/chat`, `/api/v1/refresh`, `/api/v1/stocks/` descendants, `/api/v1/persona`, `/api/v1/notes`, and `/api/v1/conversations` |
 | `backend_environment` | `{}` | Extra non-secret backend environment settings |
 
 Set `backend_environment.ADMIN_EMAILS` only in the production Terraform
@@ -139,6 +143,13 @@ Never put secret values in `backend_environment` or `.tfvars`; use the existing
 Secrets Manager workflow. Keep AWS budgets/alerts enabled because ALB, WAF,
 Fargate, RDS, public IPv4 addresses, NAT (when enabled), and data transfer are
 billable.
+
+RDS keeps the existing instance identifier and defaults to seven days of automated
+backups, deletion protection, and a final snapshot named
+`<project_name>-<environment>-final`. These settings are safe to apply to an
+existing instance and do not request replacement. A final snapshot is created
+only during an intentional destroy, and an existing snapshot with the same name
+must be removed or renamed before a later teardown.
 
 ## CI/CD order
 

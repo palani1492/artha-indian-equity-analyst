@@ -113,13 +113,60 @@ variable "database_max_allocated_storage" {
 }
 
 variable "database_backup_retention_days" {
-  type    = number
-  default = 1
+  description = "Number of days automated RDS backups are retained; production defaults to seven days."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.database_backup_retention_days >= 1 && var.database_backup_retention_days <= 35
+    error_message = "database_backup_retention_days must be between 1 and 35 days."
+  }
 }
 
 variable "database_deletion_protection" {
-  type    = bool
-  default = false
+  description = "Prevent accidental RDS deletion; disable only for an intentional, reviewed teardown."
+  type        = bool
+  default     = true
+}
+
+variable "chat_rate_limit" {
+  description = "Maximum chat requests per source IP in a five-minute WAF window."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.chat_rate_limit >= 10
+    error_message = "chat_rate_limit must be at least 10 requests per five-minute window."
+  }
+}
+
+variable "mutation_api_rate_limit" {
+  description = "Maximum requests per source IP to the configured expensive or security-sensitive mutation paths in a five-minute WAF window."
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.mutation_api_rate_limit >= 10
+    error_message = "mutation_api_rate_limit must be at least 10 requests per five-minute window."
+  }
+}
+
+variable "mutation_api_path_patterns" {
+  description = "Anchored AWS WAF regex patterns matched against URI paths for expensive or security-sensitive API operations. Include ^ and $ where an exact path is intended; use a descendant pattern for paths such as /api/v1/stocks/."
+  type        = list(string)
+  default = [
+    "^/api/v1/chat$",
+    "^/api/v1/refresh$",
+    "^/api/v1/stocks/.*$",
+    "^/api/v1/persona$",
+    "^/api/v1/notes$",
+    "^/api/v1/conversations$",
+  ]
+
+  validation {
+    condition     = length(var.mutation_api_path_patterns) > 0 && alltrue([for pattern in var.mutation_api_path_patterns : length(trimspace(pattern)) > 0])
+    error_message = "mutation_api_path_patterns must contain at least one non-empty AWS WAF regex pattern."
+  }
 }
 
 variable "log_retention_days" {
