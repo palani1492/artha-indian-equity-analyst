@@ -21,6 +21,7 @@ const INR_FORMATTER = new Intl.NumberFormat("en-IN", {
 
 export type AuthState = "checking" | "authenticated" | "guest" | "demo";
 export type AuthUser = { name: string; email: string; initials: string };
+export type AdminUser = { id: string; email: string | null; name: string | null };
 type JsonRecord = Record<string, unknown>;
 
 export function isRecord(value: unknown): value is JsonRecord {
@@ -176,6 +177,29 @@ export async function requestNotes(): Promise<ResearchNote[]> {
       citations: [],
       updatedAt: String(item.updated_at ?? ""),
     }];
+  });
+}
+
+export async function requestAdminUsers(): Promise<AdminUser[]> {
+  const payload = await requestJson("/api/v1/admin/users");
+  if (!Array.isArray(payload)) return [];
+  return payload.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string") return [];
+    return [{
+      id: item.id,
+      email: typeof item.email === "string" ? item.email : null,
+      name: typeof item.name === "string" ? item.name : null,
+    }];
+  });
+}
+
+export function isAdminUser(user: AuthUser | null): boolean {
+  return user?.email.trim().toLowerCase() === "palaniappan1492@gmail.com";
+}
+
+export async function resetAdminUserProfile(userId: string): Promise<void> {
+  await requestJson(`/api/v1/admin/users/${encodeURIComponent(userId)}/reset-profile`, {
+    method: "POST",
   });
 }
 

@@ -32,9 +32,11 @@ import {
   formatPrice,
   formatRelativeTime,
   inferPersona,
+  isAdminUser,
   isRecord,
   personaValue,
   requestAuth,
+  requestAdminUsers,
   createNote,
   requestConversationMessages,
   requestConversations,
@@ -43,10 +45,12 @@ import {
   requestNotes,
   requestUnfollow,
   requestPersonaUpdate,
+  resetAdminUserProfile,
   sourceList,
   stockList,
   type AuthState,
   type AuthUser,
+  type AdminUser,
 } from "./artha-api";
 
 type ConnectionMode = "connecting" | "live" | "demo" | "error";
@@ -104,6 +108,9 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [notes, setNotes] = useState<ResearchNote[]>([]);
   const [noteTitle, setNoteTitle] = useState("");
   const [noteBody, setNoteBody] = useState("");
+  const [adminUsers, setAdminUsers] = useState<AdminUser[] | null>(null);
+  const [adminError, setAdminError] = useState("");
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
   const researchRequestId = useRef(0);
 
   const activeStock = useMemo(
@@ -336,6 +343,29 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     });
     return () => { disposed = true; };
   }, [authState, connection]);
+
+  useEffect(() => {
+    if (connection !== "live" || authState !== "authenticated" || !isAdminUser(user)) {
+      return;
+    }
+    let disposed = false;
+    void requestAdminUsers()
+      .then((nextUsers) => {
+        if (!disposed) setAdminUsers(nextUsers);
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        const status = isRecord(error) && typeof error.status === "number" ? error.status : 0;
+        setAdminError(
+          status === 401
+            ? "Your admin session has expired. Sign in again."
+            : status === 403
+              ? "This account is not authorized for admin access."
+              : "Admin users could not be loaded. Try again later.",
+        );
+      })
+    return () => { disposed = true; };
+  }, [authState, connection, user]);
 
   function persistPersona(nextPersona: Persona) {
     setPersona(nextPersona);
@@ -654,6 +684,31 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
       setNotice("Signed out securely.");
     } catch {
       setNotice("Sign out did not complete. Please try again.");
+    }
+  }
+
+  async function handleAdminReset(userToReset: AdminUser) {
+    if (!window.confirm(`Reset the profile and followed stocks for ${userToReset.email ?? userToReset.id}? This cannot be undone.`)) {
+      return;
+    }
+    setResettingUserId(userToReset.id);
+    setAdminError("");
+    try {
+      await resetAdminUserProfile(userToReset.id);
+      setNotice(`Profile reset for ${userToReset.email ?? userToReset.id}.`);
+    } catch (error: unknown) {
+      const status = isRecord(error) && typeof error.status === "number" ? error.status : 0;
+      setAdminError(
+        status === 401
+          ? "Your admin session has expired. Sign in again."
+          : status === 403
+            ? "This account is not authorized for admin access."
+            : status === 404
+              ? "That user no longer exists. Refresh the list."
+              : "The profile could not be reset. Try again later.",
+      );
+    } finally {
+      setResettingUserId(null);
     }
   }
 
@@ -1001,6 +1056,16 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             />
           ) : null}
 
+          {connection === "live" && authState === "authenticated" && isAdminUser(user) ? (
+            <AdminPanel
+              users={adminUsers ?? []}
+              loading={adminUsers === null && !adminError}
+              error={adminError}
+              resettingUserId={resettingUserId}
+              onReset={(userToReset) => void handleAdminReset(userToReset)}
+            />
+          ) : null}
+
           <section className="sources-panel" aria-labelledby="sources-title">
             <button
               className="sources-toggle"
@@ -1235,6 +1300,57 @@ function AccountControl({
         </>
       </div>
     </details>
+  );
+}
+
+function AdminPanel({
+  users,
+  loading,
+  error,
+  resettingUserId,
+  onReset,
+}: {
+  users: AdminUser[];
+  loading: boolean;
+  error: string;
+  resettingUserId: string | null;
+  onReset: (user: AdminUser) => void;
+}) {
+  return (
+    <section className="admin-panel" aria-labelledby="admin-title">
+      <div className="section-heading-row">
+        <div>
+          <p className="eyebrow">Restricted</p>
+          <h2 id="admin-title">Admin</h2>
+        </div>
+        <span className="admin-badge">UI gate</span>
+      </div>
+      <p className="admin-warning">Destructive actions affect another user&apos;s saved profile and followed stocks.</p>
+      {loading ? <p className="admin-status" role="status">Loading users...</p> : null}
+      {error ? <p className="admin-error" role="alert">{error}</p> : null}
+      {!loading && !error && users.length === 0 ? <p className="admin-status">No users found.</p> : null}
+      {users.length > 0 ? (
+        <ul className="admin-user-list">
+          {users.map((user) => (
+            <li key={user.id}>
+              <div>
+                <strong>{user.name || "Unnamed user"}</strong>
+                <span>{user.email || user.id}</span>
+              </div>
+              <button
+                className="admin-reset-button"
+                type="button"
+                disabled={resettingUserId === user.id}
+                onClick={() => onReset(user)}
+                aria-label={`Reset profile for ${user.email || user.id}`}
+              >
+                {resettingUserId === user.id ? "Resetting..." : "Reset profile"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
