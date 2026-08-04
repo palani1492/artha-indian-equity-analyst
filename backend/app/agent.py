@@ -15,7 +15,6 @@ from app.domain.models import (
     ChatResult,
     Citation,
     DocumentKind,
-    GroundingResult,
     RankedStock,
     SourceDocument,
     Stock,
@@ -308,32 +307,6 @@ class EquityResearchAgent:
             state.get("citations", ()),
             state.get("sources", ()),
         )
-        # A provider rewrite must never be able to hide a valid deterministic
-        # answer. If the optional Gemini/OpenAI prose pass is rejected, validate
-        # the authoritative draft and return it with its citations instead of
-        # collapsing a useful response into the generic fallback.
-        if grounded.answer == GroundingGuard.FALLBACK:
-            authoritative = state.get("authoritative_draft", "")
-            if authoritative and authoritative != GroundingGuard.FALLBACK:
-                authoritative_result = self._guard.validate(
-                    authoritative,
-                    state.get("citations", ()),
-                    state.get("sources", ()),
-                )
-                if authoritative_result.is_grounded:
-                    grounded = authoritative_result
-                elif state.get("citations") and state.get("sources"):
-                    # Deterministic drafts are assembled only from the Stock
-                    # fields and SourceDocument evidence selected above. Keep
-                    # that answer (and its citations) when the lexical guard
-                    # is stricter than a live provider's formatting/name
-                    # variation; never use this escape hatch for an uncited or
-                    # empty draft.
-                    grounded = GroundingResult(
-                        answer=authoritative,
-                        citations=state["citations"],
-                        is_grounded=True,
-                    )
         return {
             "result": ChatResult(
                 answer=grounded.answer,
@@ -558,8 +531,6 @@ class EquityResearchAgent:
                 else "",
             ]
             sentence = f"{stock.name}: {', '.join(metric for metric in metrics if metric)} [{fundamentals_index}]."
-            if item.reasons:
-                sentence += f" Fit reasons: {', '.join(item.reasons[:3])}."
             news = news_by_ticker.get(stock.ticker)
             if news:
                 news_index = index_by_source[news.id]

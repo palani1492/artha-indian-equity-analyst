@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Protocol
 
 import httpx
 from openai import AsyncOpenAI, OpenAIError
 
-from app.domain.models import SourceDocument
+from app.domain.models import Citation, SourceDocument
 from app.gemini import GeminiTextClient
+from app.grounding import GroundingGuard
 
 
 class AnswerGenerator(Protocol):
@@ -108,7 +110,13 @@ class ClaimPreservingAnswerGenerator:
 
     async def generate(self, draft: str, sources: tuple[SourceDocument, ...]) -> str:
         candidate = await self._delegate.generate(draft, sources)
-        return candidate if self._safe_rewrite(candidate, draft) else draft
+        if not self._safe_rewrite(candidate, draft):
+            return draft
+        if sources and not GroundingGuard().validate(
+            candidate, self._citations(sources), sources
+        ).is_grounded:
+            return draft
+        return candidate
 
     @staticmethod
     def _normalized(value: str) -> str:
@@ -119,7 +127,6 @@ class ClaimPreservingAnswerGenerator:
         if not candidate.strip():
             return False
         citation_pattern = r"\[(\d+)]"
-        import re
 
         if sorted(re.findall(citation_pattern, candidate)) != sorted(
             re.findall(citation_pattern, draft)
@@ -131,3 +138,19 @@ class ClaimPreservingAnswerGenerator:
             number_pattern, re.sub(citation_pattern, "", candidate)
         )
         return all(number in draft_numbers for number in candidate_numbers)
+
+    @staticmethod
+    def _citations(sources: tuple[SourceDocument, ...]) -> tuple[Citation, ...]:
+        return tuple(
+            Citation(
+                index=index,
+                document_id=source.id,
+                title=source.title,
+                url=source.url,
+                ticker=source.ticker,
+                kind=source.kind,
+                content=source.content,
+                published_at=source.published_at,
+            )
+            for index, source in enumerate(sources, 1)
+        )
