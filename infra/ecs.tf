@@ -145,6 +145,10 @@ resource "aws_ecs_task_definition" "backend" {
       {
         name      = "SESSION_SECRET"
         valueFrom = "${aws_secretsmanager_secret.application.arn}:SESSION_SECRET::"
+      },
+      {
+        name      = "ADMIN_EMAILS"
+        valueFrom = "${aws_secretsmanager_secret.application.arn}:ADMIN_EMAILS::"
       }
     ]
     healthCheck = {

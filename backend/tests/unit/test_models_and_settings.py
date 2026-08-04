@@ -162,7 +162,7 @@ def test_admin_email_allowlist_is_normalized_and_empty_by_default() -> None:
     assert Settings(_env_file=None).admin_emails == ()
     assert Settings(
         _env_file=None,
-        admin_emails=" PalaniAppan1492@gmail.com,ADMIN@example.com ",
+        admin_emails=" admin@example.invalid,ADMIN@example.com ",
     ).admin_emails == ("admin@example.invalid", "admin@example.com")
 
 

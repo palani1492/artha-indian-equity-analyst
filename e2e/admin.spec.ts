@@ -7,7 +7,7 @@ async function openMockedWorkspace(page: import("@playwright/test").Page, email:
     if (url.pathname === "/api/v1/auth/me") {
       await route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({ email, name: "Test user" }),
+        body: JSON.stringify({ email, name: "Test user", is_admin: email === "admin@example.invalid" }),
       });
       return;
     }
@@ -37,7 +37,7 @@ async function openAdminWorkspaceWithUsers(
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/v1/auth/me") {
-      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "admin-id", email: "admin@example.invalid", name: "Admin" }) });
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "admin-id", email: "admin@example.invalid", name: "Admin", is_admin: true }) });
       return;
     }
     if (url.pathname === "/api/v1/admin/users") {

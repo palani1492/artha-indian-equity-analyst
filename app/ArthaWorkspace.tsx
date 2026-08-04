@@ -110,7 +110,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [theme, setTheme] = useState<ThemePreference>("system");
   const [authState, setAuthState] = useState<AuthState>(demoMode ? "demo" : "checking");
   const [user, setUser] = useState<AuthUser | null>(
-    demoMode ? { name: "Sample profile", email: "", initials: "SP" } : null,
+    demoMode ? { name: "Sample profile", email: "", initials: "SP", isAdmin: false } : null,
   );
   const [clock, setClock] = useState(() => Date.now());
   const [welcomeTitle, setWelcomeTitle] = useState("Your research desk is ready.");
@@ -282,7 +282,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
         if (ALLOW_DEMO_FALLBACK) {
           setConnection("demo");
           setAuthState("demo");
-          setUser({ name: "Sample profile", email: "", initials: "SP" });
+          setUser({ name: "Sample profile", email: "", initials: "SP", isAdmin: false });
           setNotice("Live API unavailable. Showing the deterministic sample dataset.");
         } else {
           setConnection("error");

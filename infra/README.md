@@ -81,6 +81,7 @@ Create these secrets in the GitHub `production` environment:
 | `GOOGLE_CLIENT_SECRET` | for Google auth | OAuth web client secret |
 | `OPENAI_API_KEY` | no | Leave unset for deterministic demo/local AI mode |
 | `GEMINI_API_KEY` | no | Optional Gemini Developer API key; never commit it |
+| `ADMIN_EMAILS` | no | Comma-separated server-side admin allowlist; stored only in Secrets Manager |
 
 The deployment workflow first creates only the ECR repositories and empty
 application secret, writes secret values directly through the Secrets Manager
@@ -127,9 +128,9 @@ Important production variables:
 | `mutation_api_path_patterns` | six narrow regex patterns | AWS WAF regex patterns for `/api/v1/chat`, `/api/v1/refresh`, `/api/v1/stocks/` descendants, `/api/v1/persona`, `/api/v1/notes`, and `/api/v1/conversations` |
 | `backend_environment` | `{}` | Extra non-secret backend environment settings |
 
-Set `backend_environment.ADMIN_EMAILS` only in the production Terraform
-configuration. It is a comma-separated server-side allowlist, empty by
-default, and cannot be supplied by the frontend.
+Set the production environment secret `ADMIN_EMAILS` to the comma-separated
+server-side allowlist. It is injected into ECS through Secrets Manager and is
+never supplied by the frontend or Terraform variables.
 
 The production locals set `MARKET_DATA_PROVIDER=live` and default `AI_PROVIDER=local`.
 Live mode uses yfinance for quotes/fundamentals and the configured, rate-limited

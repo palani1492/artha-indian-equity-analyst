@@ -22,7 +22,7 @@ const INR_FORMATTER = new Intl.NumberFormat("en-IN", {
 });
 
 export type AuthState = "checking" | "authenticated" | "guest" | "demo";
-export type AuthUser = { name: string; email: string; initials: string };
+export type AuthUser = { name: string; email: string; initials: string; isAdmin: boolean };
 export type AdminUser = { id: string; email: string | null; name: string | null };
 type JsonRecord = Record<string, unknown>;
 
@@ -236,7 +236,7 @@ export async function requestAdminUsers(): Promise<AdminUser[]> {
 }
 
 export function isAdminUser(user: AuthUser | null): boolean {
-  return user?.email.trim().toLowerCase() === "admin@example.invalid";
+  return user?.isAdmin === true;
 }
 
 export async function resetAdminUserProfile(userId: string): Promise<void> {
@@ -497,7 +497,12 @@ export function authUser(payload: unknown): AuthUser | null {
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase())
       .join("") || "AI";
-  return { name: name || email, email, initials };
+  return {
+    name: name || email,
+    email,
+    initials,
+    isAdmin: value.is_admin === true,
+  };
 }
 
 export function formatPrice(value: number): string {

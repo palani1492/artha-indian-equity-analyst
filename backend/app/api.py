@@ -324,9 +324,18 @@ def create_app(container: Container | None = None) -> FastAPI:
         return response
 
     @app.get("/api/v1/auth/me")
-    async def me(user_id: Annotated[str, Depends(_user_id)]) -> dict[str, str | None]:
+    async def me(user_id: Annotated[str, Depends(_user_id)]) -> dict[str, object]:
         user = await dependencies.repository.get_user(user_id)
-        return user or {"id": user_id, "email": user_id, "name": None, "picture": None}
+        if user is None:
+            return {
+                "id": user_id,
+                "email": user_id,
+                "name": None,
+                "picture": None,
+                "is_admin": False,
+            }
+        email = user.get("email")
+        return {**user, "is_admin": bool(email and email.casefold() in dependencies.settings.admin_emails)}
 
     @app.get("/api/v1/conversations", response_model=tuple[ResearchConversation, ...])
     async def conversations(
