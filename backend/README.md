@@ -12,7 +12,7 @@ cp .env.example .env
 .venv/bin/uvicorn app.api:app --reload --port 8000
 ```
 
-For a no-database demo, remove `DATABASE_URL`; data remains in memory for the process lifetime. Never use `AUTH_MODE=demo` in production. Google OIDC requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a random `SESSION_SECRET`. The callback validates state and nonce and issues an opaque, repository-backed `HttpOnly; Secure; SameSite=Lax` session cookie. Administrator access is server-side only: `ADMIN_EMAILS` is empty by default and should be configured only in production. Admin APIs list persisted users and reset a user's persona and followed stocks; conversations are not persisted and have no admin reset API.
+For a no-database demo, remove `DATABASE_URL`; data remains in memory for the process lifetime. Never use `AUTH_MODE=demo` in production. Google OIDC requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a random `SESSION_SECRET`. The callback validates state and nonce and issues an opaque, repository-backed `HttpOnly; Secure; SameSite=Lax` session cookie. Administrator access is server-side only: `ADMIN_EMAILS` is empty by default and should be configured only in production. Admin APIs list persisted users, reset a user's persona/follows, and delete that user's persisted conversations. Conversations and notes are ownership-scoped and persisted when PostgreSQL is configured.
 
 ## Verification and scheduled refresh
 
