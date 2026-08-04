@@ -5,7 +5,7 @@ import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -197,6 +197,70 @@ class Citation(BaseModel):
     published_at: datetime | None = None
 
 
+class ResearchConversation(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    user_id: str = Field(min_length=1, max_length=320)
+    title: str = Field(min_length=1, max_length=200)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationMessage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    conversation_id: str = Field(min_length=1, max_length=64)
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=12000)
+    title: str | None = Field(default=None, max_length=200)
+    scope_tickers: tuple[str, ...] = Field(default=(), max_length=10)
+    citations: tuple[Citation, ...] = Field(default=(), max_length=20)
+    created_at: datetime
+
+    @field_validator("text", "title")
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("text cannot be blank")
+        return cleaned
+
+    @field_validator("scope_tickers")
+    @classmethod
+    def clean_scope(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(normalize_ticker(value)[0] for value in values))
+
+
+class ResearchNote(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    user_id: str = Field(min_length=1, max_length=320)
+    title: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=4000)
+    scope_tickers: tuple[str, ...] = Field(default=(), max_length=10)
+    citations: tuple[Citation, ...] = Field(default=(), max_length=20)
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("title", "body")
+    @classmethod
+    def clean_note_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("note text cannot be blank")
+        return cleaned
+
+    @field_validator("scope_tickers")
+    @classmethod
+    def clean_note_scope(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(normalize_ticker(value)[0] for value in values))
+
+
 class RankedStock(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -234,4 +298,5 @@ class ChatResult(BaseModel):
     title: str | None = None
     answer_kind: str = "research"
     persona: InvestorPersona | None = None
+    conversation_id: str | None = None
     debug: dict[str, Any] = Field(default_factory=dict, exclude=True)

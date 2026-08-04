@@ -28,8 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.domain.models import (
+    ConversationMessage,
     DocumentKind,
     InvestorPersona,
+    ResearchConversation,
+    ResearchNote,
     SourceDocument,
     Stock,
     canonical_source_url,
@@ -121,6 +124,41 @@ class SessionRow(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     expires_at: Mapped[float] = mapped_column(Float, nullable=False, index=True)
+
+
+class ConversationRow(Base):
+    __tablename__ = "research_conversations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ConversationMessageRow(Base):
+    __tablename__ = "research_messages"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("research_conversations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(10), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(200))
+    scope_tickers: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class NoteRow(Base):
+    __tablename__ = "research_notes"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_tickers: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SqlAlchemyResearchRepository:
@@ -477,6 +515,99 @@ class SqlAlchemyResearchRepository:
         async with self._sessions.begin() as session:
             await session.execute(delete(SessionRow).where(SessionRow.id == session_id))
 
+    async def create_conversation(self, conversation: ResearchConversation) -> None:
+        async with self._sessions.begin() as session:
+            session.add(ConversationRow(**conversation.model_dump(mode="python")))
+
+    async def list_conversations(self, user_id: str) -> tuple[ResearchConversation, ...]:
+        query = (
+            select(ConversationRow)
+            .where(ConversationRow.user_id == user_id)
+            .order_by(ConversationRow.updated_at.desc(), ConversationRow.id)
+        )
+        async with self._sessions() as session:
+            return tuple(
+                self._conversation(row) for row in (await session.scalars(query)).all()
+            )
+
+    async def get_conversation(
+        self, user_id: str, conversation_id: str
+    ) -> ResearchConversation | None:
+        query = select(ConversationRow).where(
+            ConversationRow.id == conversation_id, ConversationRow.user_id == user_id
+        )
+        async with self._sessions() as session:
+            row = await session.scalar(query)
+            return self._conversation(row) if row else None
+
+    async def add_conversation_message(self, message: ConversationMessage) -> None:
+        async with self._sessions.begin() as session:
+            values = message.model_dump(mode="python")
+            values["citations"] = [
+                citation.model_dump(mode="json") for citation in message.citations
+            ]
+            session.add(ConversationMessageRow(**values))
+            conversation = await session.get(ConversationRow, message.conversation_id)
+            if conversation:
+                conversation.updated_at = message.created_at
+
+    async def list_conversation_messages(
+        self, user_id: str, conversation_id: str
+    ) -> tuple[ConversationMessage, ...]:
+        query = (
+            select(ConversationMessageRow)
+            .join(
+                ConversationRow,
+                ConversationRow.id == ConversationMessageRow.conversation_id,
+            )
+            .where(
+                ConversationRow.id == conversation_id,
+                ConversationRow.user_id == user_id,
+            )
+            .order_by(ConversationMessageRow.created_at, ConversationMessageRow.id)
+        )
+        async with self._sessions() as session:
+            return tuple(
+                self._message(row) for row in (await session.scalars(query)).all()
+            )
+
+    async def create_note(self, note: ResearchNote) -> None:
+        async with self._sessions.begin() as session:
+            session.add(self._note_row(note))
+
+    async def list_notes(self, user_id: str) -> tuple[ResearchNote, ...]:
+        query = select(NoteRow).where(NoteRow.user_id == user_id).order_by(
+            NoteRow.updated_at.desc(), NoteRow.id
+        )
+        async with self._sessions() as session:
+            return tuple(self._note(row) for row in (await session.scalars(query)).all())
+
+    async def get_note(self, user_id: str, note_id: str) -> ResearchNote | None:
+        query = select(NoteRow).where(NoteRow.id == note_id, NoteRow.user_id == user_id)
+        async with self._sessions() as session:
+            row = await session.scalar(query)
+            return self._note(row) if row else None
+
+    async def update_note(self, note: ResearchNote) -> None:
+        async with self._sessions.begin() as session:
+            row = await session.get(NoteRow, note.id)
+            if row is None or row.user_id != note.user_id:
+                return
+            values = note.model_dump(mode="python")
+            values["citations"] = [
+                citation.model_dump(mode="json") for citation in note.citations
+            ]
+            for key in ("title", "body", "scope_tickers", "citations", "updated_at"):
+                setattr(row, key, values[key])
+
+    async def delete_note(self, user_id: str, note_id: str) -> bool:
+        async with self._sessions.begin() as session:
+            row = await session.get(NoteRow, note_id)
+            if row is None or row.user_id != user_id:
+                return False
+            await session.delete(row)
+            return True
+
     @staticmethod
     def _stock(row: StockRow) -> Stock:
         return Stock.model_validate(
@@ -502,3 +633,35 @@ class SqlAlchemyResearchRepository:
             sum(b * b for b in right)
         )
         return numerator / denominator if denominator else 0.0
+
+    @staticmethod
+    def _conversation(row: ConversationRow) -> ResearchConversation:
+        return ResearchConversation.model_validate(
+            {
+                column.name: getattr(row, column.name)
+                for column in ConversationRow.__table__.columns
+            }
+        )
+
+    @staticmethod
+    def _message(row: ConversationMessageRow) -> ConversationMessage:
+        return ConversationMessage.model_validate(
+            {
+                column.name: getattr(row, column.name)
+                for column in ConversationMessageRow.__table__.columns
+            }
+        )
+
+    @staticmethod
+    def _note_row(note: ResearchNote) -> NoteRow:
+        values = note.model_dump(mode="python")
+        values["citations"] = [
+            citation.model_dump(mode="json") for citation in note.citations
+        ]
+        return NoteRow(**values)
+
+    @staticmethod
+    def _note(row: NoteRow) -> ResearchNote:
+        return ResearchNote.model_validate(
+            {column.name: getattr(row, column.name) for column in NoteRow.__table__.columns}
+        )

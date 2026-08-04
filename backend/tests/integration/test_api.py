@@ -38,6 +38,59 @@ def test_protected_routes_require_identity(client) -> None:
     assert response.status_code == 401
 
 
+def test_research_conversations_persist_scoped_cited_chat(client, auth_headers) -> None:
+    created = client.post(
+        "/api/v1/conversations", headers=auth_headers, json={"title": "TCS thesis"}
+    )
+    assert created.status_code == 201
+    conversation_id = created.json()["id"]
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={
+            "message": "What changed for TCS?",
+            "ticker": "TCS",
+            "conversation_id": conversation_id,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["conversation_id"] == conversation_id
+
+    messages = client.get(
+        f"/api/v1/conversations/{conversation_id}/messages", headers=auth_headers
+    )
+    assert messages.status_code == 200
+    assert [message["role"] for message in messages.json()] == ["user", "assistant"]
+    assert messages.json()[1]["scope_tickers"] == ["TCS"]
+    assert messages.json()[1]["citations"]
+
+
+def test_notes_are_user_owned_and_validated(client, auth_headers) -> None:
+    payload = {
+        "title": "TCS thesis",
+        "body": "Check demand commentary against the next filing.",
+        "scope_tickers": ["TCS"],
+        "citations": [
+            {
+                "index": 1,
+                "document_id": "doc-1",
+                "title": "TCS filing",
+                "url": "https://example.com/tcs",
+            }
+        ],
+    }
+    created = client.post("/api/v1/notes", headers=auth_headers, json=payload)
+    assert created.status_code == 201
+    note_id = created.json()["id"]
+    assert client.get("/api/v1/notes", headers=auth_headers).json()[0]["user_id"] == "investor@example.com"
+    assert client.get("/api/v1/notes", headers={"X-User-ID": "other@example.com"}).json() == []
+    assert client.patch(
+        f"/api/v1/notes/{note_id}", headers={"X-User-ID": "other@example.com"}, json=payload
+    ).status_code == 404
+    assert client.post("/api/v1/notes", headers=auth_headers, json={"title": " ", "body": "x"}).status_code == 422
+
+
 def test_logout_returns_no_content_and_clears_cookie(client) -> None:
     response = client.post("/api/v1/auth/logout")
     assert response.status_code == 204

@@ -17,6 +17,8 @@ import {
   type Citation,
   type Persona,
   type ResearchSource,
+  type ResearchConversation,
+  type ResearchNote,
   type Stock,
 } from "./artha-data";
 import {
@@ -24,6 +26,7 @@ import {
   ALLOW_DEMO_FALLBACK,
   apiAnswer,
   authUser,
+  createConversation,
   demoAnswer,
   formatGreeting,
   formatPrice,
@@ -32,8 +35,12 @@ import {
   isRecord,
   personaValue,
   requestAuth,
+  createNote,
+  requestConversationMessages,
+  requestConversations,
   requestFirst,
   requestLogout,
+  requestNotes,
   requestUnfollow,
   requestPersonaUpdate,
   sourceList,
@@ -92,6 +99,11 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   );
   const [clock, setClock] = useState(() => Date.now());
   const [welcomeTitle, setWelcomeTitle] = useState("Your research desk is ready.");
+  const [conversations, setConversations] = useState<ResearchConversation[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<ResearchNote[]>([]);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteBody, setNoteBody] = useState("");
   const researchRequestId = useRef(0);
 
   const activeStock = useMemo(
@@ -307,6 +319,24 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, authState, connection, stocks.length]);
 
+  useEffect(() => {
+    if (connection !== "live" || authState !== "authenticated") return;
+    let disposed = false;
+    void Promise.all([requestConversations(), requestNotes()]).then(async ([nextConversations, nextNotes]) => {
+      if (disposed) return;
+      setConversations(nextConversations);
+      setNotes(nextNotes);
+      const latest = nextConversations[0];
+      if (!latest) return;
+      setConversationId(latest.id);
+      const history = await requestConversationMessages(latest.id);
+      if (!disposed && history.length) setMessages(history);
+    }).catch(() => {
+      // Persistence is additive; the live research desk remains usable if history is unavailable.
+    });
+    return () => { disposed = true; };
+  }, [authState, connection]);
+
   function persistPersona(nextPersona: Persona) {
     setPersona(nextPersona);
     setPersonaDraft(nextPersona);
@@ -375,6 +405,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             message: cleanQuestion,
             ticker: requestedTicker,
             tickers: scopedTickerSymbols,
+            conversation_id: conversationId,
             persona: nextPersona,
           }),
         });
@@ -382,6 +413,9 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
         answer = apiAnswer(payload);
         const learnedPersona = isRecord(payload) ? personaValue(payload.persona) : null;
         if (learnedPersona) persistPersona(learnedPersona);
+        if (isRecord(payload) && typeof payload.conversation_id === "string") {
+          setConversationId(payload.conversation_id);
+        }
       } catch {
         if (researchRequestId.current !== requestId) return;
         if (!ALLOW_DEMO_FALLBACK) {
@@ -769,6 +803,42 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               </div>
             ) : null}
           </div>
+          {connection === "live" && authState === "authenticated" ? (
+            <div className="conversation-controls">
+              <label htmlFor="conversation-select">Conversation</label>
+              <select
+                id="conversation-select"
+                value={conversationId ?? ""}
+                onChange={async (event) => {
+                  const selected = event.target.value;
+                  setConversationId(selected || null);
+                  if (!selected) return;
+                  const history = await requestConversationMessages(selected);
+                  setMessages(history);
+                }}
+              >
+                {!conversations.length ? <option value="">Current research</option> : null}
+                {conversations.map((conversation) => (
+                  <option key={conversation.id} value={conversation.id}>{conversation.title}</option>
+                ))}
+              </select>
+              <button
+                className="text-button"
+                type="button"
+                onClick={async () => {
+                  try {
+                    const conversation = await createConversation();
+                    setConversations((current) => [conversation, ...current]);
+                    setConversationId(conversation.id);
+                    setMessages([]);
+                    setAnswerEvidence(null);
+                  } catch {
+                    setNotice("A new conversation could not be created.");
+                  }
+                }}
+              >New conversation</button>
+            </div>
+          ) : null}
 
           <div className="research-scope" aria-label="Research scope">
             <span className="eyebrow">Research scope</span>
@@ -902,6 +972,33 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
 
           {activeStock ? (
             <EvidenceMatrix stock={activeStock} sources={tickerSources} clock={clock} />
+          ) : null}
+
+          {connection === "live" && authState === "authenticated" ? (
+            <ResearchNotesPanel
+              notes={notes}
+              title={noteTitle}
+              body={noteBody}
+              onTitleChange={setNoteTitle}
+              onBodyChange={setNoteBody}
+              onSave={async () => {
+                if (!noteTitle.trim() || !noteBody.trim()) return;
+                try {
+                  const note = await createNote({
+                    title: noteTitle,
+                    body: noteBody,
+                    scopeTickers: scopedStocks.map((stock) => stock.symbol),
+                    citations: visibleCitations,
+                  });
+                  setNotes((current) => [note, ...current]);
+                  setNoteTitle("");
+                  setNoteBody("");
+                  setNotice("Research note saved.");
+                } catch {
+                  setNotice("The research note could not be saved.");
+                }
+              }}
+            />
           ) : null}
 
           <section className="sources-panel" aria-labelledby="sources-title">
@@ -1159,6 +1256,38 @@ function PersonaSummary({ persona }: { persona: Persona }) {
       </div>
       <p className="memory-note">{persona.note}</p>
     </div>
+  );
+}
+
+function ResearchNotesPanel({
+  notes,
+  title,
+  body,
+  onTitleChange,
+  onBodyChange,
+  onSave,
+}: {
+  notes: ResearchNote[];
+  title: string;
+  body: string;
+  onTitleChange: (value: string) => void;
+  onBodyChange: (value: string) => void;
+  onSave: () => Promise<void>;
+}) {
+  return (
+    <section className="notes-panel" aria-labelledby="notes-title">
+      <div className="section-heading-row">
+        <div><p className="eyebrow">Your workspace</p><h2 id="notes-title">Research notes</h2></div>
+      </div>
+      <form onSubmit={(event) => { event.preventDefault(); void onSave(); }}>
+        <label htmlFor="note-title">Title</label>
+        <input id="note-title" value={title} onChange={(event) => onTitleChange(event.target.value)} maxLength={160} />
+        <label htmlFor="note-body">Note</label>
+        <textarea id="note-body" rows={3} value={body} onChange={(event) => onBodyChange(event.target.value)} maxLength={4000} />
+        <button className="text-button" type="submit" disabled={!title.trim() || !body.trim()}>Save note</button>
+      </form>
+      {notes.length ? <ul className="notes-list">{notes.slice(0, 5).map((note) => <li key={note.id}><strong>{note.title}</strong><span>{note.body}</span></li>)}</ul> : <p className="source-explainer">Capture a thesis or question beside the evidence you are reviewing.</p>}
+    </section>
   );
 }
 

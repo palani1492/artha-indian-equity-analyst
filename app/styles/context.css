@@ -184,6 +184,54 @@
   padding-bottom: 20px;
 }
 
+.notes-panel {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+}
+
+.notes-panel form,
+.conversation-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.notes-panel input,
+.notes-panel textarea,
+.conversation-controls select {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: var(--canvas);
+  font: inherit;
+}
+
+.notes-list {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.notes-list li {
+  display: grid;
+  gap: 3px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.notes-list span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  white-space: pre-wrap;
+}
+
 .sources-toggle {
   display: flex;
   align-items: center;

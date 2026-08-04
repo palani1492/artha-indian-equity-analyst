@@ -123,6 +123,10 @@ Important production variables:
 | `oauth_callback_rate_limit` | `100` | Per-IP OAuth callback limit in each five-minute WAF window |
 | `backend_environment` | `{}` | Extra non-secret backend environment settings |
 
+Set `backend_environment.ADMIN_EMAILS` only in the production Terraform
+configuration. It is a comma-separated server-side allowlist, empty by
+default, and cannot be supplied by the frontend.
+
 The production locals set `MARKET_DATA_PROVIDER=live` and default `AI_PROVIDER=local`.
 Live mode uses yfinance for quotes/fundamentals and the configured, rate-limited
 RSS feeds for news; the deterministic provider is reserved for local evaluation.
