@@ -7,9 +7,11 @@ from pydantic import ValidationError
 
 from app.container import build_container
 from app.domain.models import (
+    Citation,
     DocumentKind,
     Exchange,
     SourceDocument,
+    SourceTier,
     Stock,
     normalize_ticker,
     source_story_fingerprint,
@@ -32,6 +34,29 @@ def test_ticker_normalization_rejects_untrusted_input(ticker: str) -> None:
 def test_stock_requires_nonnegative_inr_price() -> None:
     with pytest.raises(ValidationError):
         Stock(ticker="TCS", exchange=Exchange.NSE, name="TCS", price_inr=-1)
+
+
+def test_source_quality_tier_is_validated_and_defaults_to_secondary() -> None:
+    document = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.NEWS,
+        title="TCS update",
+        url="https://news.example.test/story",
+        content="TCS reported a quarterly update.",
+        published_at=datetime.now(UTC),
+    )
+
+    assert document.source_tier is SourceTier.SECONDARY
+    assert Citation(
+        index=1,
+        document_id=document.id,
+        title=document.title,
+        url=document.url,
+    ).source_tier is SourceTier.SECONDARY
+    with pytest.raises(ValidationError):
+        SourceDocument.model_validate(
+            {**document.model_dump(), "source_tier": "untrusted"}
+        )
 
 
 def test_database_url_is_composed_from_aws_parts() -> None:

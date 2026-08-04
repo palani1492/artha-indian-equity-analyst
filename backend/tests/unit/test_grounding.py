@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.domain.models import Citation, DocumentKind, SourceDocument
+from app.domain.models import Citation, DocumentKind, SourceDocument, SourceTier
 from app.grounding import GroundingGuard
 
 
@@ -34,6 +34,29 @@ def test_numeric_claim_requires_a_valid_citation_and_source_support() -> None:
 
     hallucinated = guard.validate("TCS trades at INR 9,999 [1].", (citation,), (doc,))
     assert hallucinated.is_grounded is False
+
+
+def test_grounding_citations_preserve_source_tier() -> None:
+    doc = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.FUNDAMENTALS,
+        title="TCS filing",
+        url="https://www.sebi.gov.in/tcs-filing",
+        content="TCS price is INR 4,125.50.",
+        published_at=datetime(2026, 8, 1, tzinfo=UTC),
+        source_tier=SourceTier.PRIMARY,
+    )
+    citation = Citation(
+        index=1,
+        document_id=doc.id,
+        title=doc.title,
+        url=doc.url,
+        source_tier=doc.source_tier,
+    )
+
+    result = GroundingGuard().validate("TCS trades at INR 4,125.50 [1].", (citation,), (doc,))
+
+    assert result.citations[0].source_tier is SourceTier.PRIMARY
 
 
 def test_numeric_claim_accepts_equivalent_live_decimal_formatting() -> None:

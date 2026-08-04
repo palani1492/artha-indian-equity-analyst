@@ -5,6 +5,7 @@ from app.domain.models import (
     InvestorPersona,
     RiskTolerance,
     SourceDocument,
+    SourceTier,
     Stock,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "InvestorPersona",
     "RiskTolerance",
     "SourceDocument",
+    "SourceTier",
     "Stock",
 ]

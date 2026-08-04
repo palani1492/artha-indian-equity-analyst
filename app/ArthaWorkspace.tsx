@@ -1342,7 +1342,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                       >
                         <span className="source-number">[{citationLabels.get(source.id) ?? index + 1}]</span>
                         <span>
-                          <small>{source.ticker ? `${source.ticker} / ` : ""}{source.kind} / {source.publisher}</small>
+                          <small>{source.ticker ? `${source.ticker} / ` : ""}{source.kind} / {source.publisher} / {sourceTierLabel(source.sourceTier)}</small>
                           <strong>{source.title}</strong>
                         </span>
                       </button>
@@ -1855,7 +1855,7 @@ function EvidenceMatrix({
         <span className="eyebrow">Recent evidence</span>
         {sources.slice(0, 3).map((source) => (
           <div key={`timeline-${source.id}`}>
-            <strong>{source.kind}</strong>
+            <strong>{sourceTierLabel(source.sourceTier)} / {source.kind}</strong>
             <span>{source.title}</span>
             <small>{formatRelativeTime(source.publishedAt, clock) ?? source.dateLabel}</small>
           </div>
@@ -1863,6 +1863,19 @@ function EvidenceMatrix({
       </div>
     </section>
   );
+}
+
+function sourceTierLabel(tier: ResearchSource["sourceTier"]): string {
+  switch (tier) {
+    case "primary":
+      return "Primary source";
+    case "company":
+      return "Company source";
+    case "contextual":
+      return "Contextual source";
+    default:
+      return "Secondary source";
+  }
 }
 
 function ResearchStarter({

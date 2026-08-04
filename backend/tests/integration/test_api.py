@@ -257,6 +257,7 @@ def test_follow_stock_and_grounded_chat_flow(client, auth_headers) -> None:
     assert "INR" in body["answer"]
     assert "[1]" in body["answer"]
     assert body["citations"][0]["url"].startswith("https://")
+    assert body["citations"][0]["source_tier"] == "secondary"
     assert body["grounded"] is True
 
 
@@ -291,6 +292,7 @@ def test_refresh_route_rehydrates_every_followed_quote_and_compacts_sources(
     assert {result["ticker"] for result in body["results"]} == {"TCS", "INFY"}
     sources = client.get("/api/v1/sources?ticker=TCS", headers=auth_headers).json()
     assert len(sources) == 2
+    assert all(source["source_tier"] == "secondary" for source in sources)
 
 
 def test_follow_preserves_bse_exchange_and_returns_hydrated_stock(

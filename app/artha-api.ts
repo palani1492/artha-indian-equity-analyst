@@ -8,6 +8,7 @@ import {
   type ResearchConversation,
   type ResearchNote,
   type Stock,
+  type SourceTier,
   type TickerSuggestion,
 } from "./artha-data";
 
@@ -403,6 +404,12 @@ function stringList(value: unknown, fallback: string[]): string[] {
     : [...fallback];
 }
 
+function sourceTier(value: unknown): SourceTier {
+  return value === "primary" || value === "company" || value === "contextual"
+    ? value
+    : "secondary";
+}
+
 export function sourceList(payload: unknown): ResearchSource[] | null {
   const raw = Array.isArray(payload)
     ? payload
@@ -434,6 +441,7 @@ export function sourceList(payload: unknown): ResearchSource[] | null {
         excerpt: String(
           item.excerpt ?? item.snippet ?? item.content ?? "Open the source for full context.",
         ),
+        sourceTier: sourceTier(item.source_tier ?? item.sourceTier),
       } satisfies ResearchSource,
     ];
   });
@@ -584,7 +592,12 @@ export function apiAnswer(payload: unknown): ChatMessage | null {
         `source-${index + 1}`,
     );
     const source = sourceList([{ ...item, id: sourceId }])?.[0];
-    return [{ sourceId, label: String(item.index ?? index + 1), source }];
+    return [{
+      sourceId,
+      label: String(item.index ?? index + 1),
+      source,
+      sourceTier: sourceTier(item.source_tier ?? source?.sourceTier),
+    }];
   });
   return {
     id: crypto.randomUUID(),

@@ -83,6 +83,9 @@ class DocumentRow(Base):
         DateTime(timezone=True), nullable=False, index=True
     )
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_tier: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="secondary", server_default="secondary"
+    )
     sentiment: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     impact: Mapped[str] = mapped_column(String(40), nullable=False)
     event_tag: Mapped[str] = mapped_column(String(80), nullable=False)

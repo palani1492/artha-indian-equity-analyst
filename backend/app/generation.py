@@ -149,6 +149,7 @@ class ClaimPreservingAnswerGenerator:
                 url=source.url,
                 ticker=source.ticker,
                 kind=source.kind,
+                source_tier=source.source_tier,
                 content=source.content,
                 published_at=source.published_at,
             )

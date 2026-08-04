@@ -45,6 +45,13 @@ class DocumentKind(StrEnum):
     NEWS = "news"
 
 
+class SourceTier(StrEnum):
+    PRIMARY = "primary"
+    COMPANY = "company"
+    SECONDARY = "secondary"
+    CONTEXTUAL = "contextual"
+
+
 class RiskTolerance(StrEnum):
     CONSERVATIVE = "conservative"
     BALANCED = "balanced"
@@ -129,6 +136,7 @@ class SourceDocument(BaseModel):
     content: str = Field(min_length=1)
     published_at: datetime
     content_hash: str
+    source_tier: SourceTier = SourceTier.SECONDARY
     sentiment: float = Field(default=0.0, ge=-1, le=1)
     impact: str = Field(default="neutral", max_length=40)
     event_tag: str = Field(default="general", max_length=80)
@@ -144,6 +152,7 @@ class SourceDocument(BaseModel):
         url: str,
         content: str,
         published_at: datetime,
+        source_tier: SourceTier = SourceTier.SECONDARY,
         sentiment: float = 0.0,
         impact: str = "neutral",
         event_tag: str = "general",
@@ -168,6 +177,7 @@ class SourceDocument(BaseModel):
             content=normalized_content,
             published_at=published_at,
             content_hash=content_hash,
+            source_tier=source_tier,
             sentiment=sentiment,
             impact=impact,
             event_tag=event_tag,
@@ -211,6 +221,7 @@ class Citation(BaseModel):
     url: HttpUrl
     ticker: str | None = None
     kind: DocumentKind | None = None
+    source_tier: SourceTier = SourceTier.SECONDARY
     content: str | None = None
     published_at: datetime | None = None
 
