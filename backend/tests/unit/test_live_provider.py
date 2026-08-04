@@ -75,6 +75,21 @@ def test_live_provider_matches_company_aliases_in_rss_items() -> None:
     assert len(documents) == 1
 
 
+def test_live_provider_does_not_match_single_letter_m_aliases() -> None:
+    provider = LiveIndianMarketDataProvider(rss_feeds=())
+    stock = _stock().model_copy(
+        update={"ticker": "M&M", "name": "Mahindra & Mahindra Limited"}
+    )
+    payload = b"""<rss><channel>
+      <item><title>Bharti Airtel Q1 Results: Net profit surges</title>
+        <description>ARPU rises as telecom demand improves.</description>
+        <link>https://news.example.test/airtel</link>
+        <pubDate>Fri, 01 Aug 2026 09:00:00 +0000</pubDate></item>
+    </channel></rss>"""
+
+    assert provider._parse_feed(payload, stock) == ()
+
+
 def test_live_fundamentals_document_contains_groundable_inr_values() -> None:
     document = LiveIndianMarketDataProvider._fundamentals_document(_stock())
     assert "INR 4125.50" in document.content

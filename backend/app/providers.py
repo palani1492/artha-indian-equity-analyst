@@ -368,7 +368,11 @@ class LiveIndianMarketDataProvider:
             " ".join(words[:2]) if len(words) >= 2 else shortened_name,
         }
         return tuple(
-            sorted((alias for alias in aliases if alias), key=len, reverse=True)
+            sorted(
+                (alias for alias in aliases if len(alias) >= 3),
+                key=len,
+                reverse=True,
+            )
         )
 
     @staticmethod
