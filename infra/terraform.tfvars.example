@@ -14,6 +14,7 @@ image_tag = "latest"
 # public_base_url = "https://stocks.example.com"
 
 database_instance_class     = "db.t4g.micro"
+database_backup_retention_days = 1 # Free Tier-compatible; increase when the account allows it.
 frontend_desired_count      = 1
 backend_desired_count       = 1
 service_max_count           = 2
