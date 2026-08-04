@@ -462,10 +462,10 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
       connection === "live" && conversationId && !messages.some((message) => message.role === "user"),
     );
     const nextPersona = inferPersona(cleanQuestion, persona);
-    const scopedTickerSymbols = scopedStocks.map((stock) => stock.symbol);
-    const requestedTicker = scopedStocks.length === 1
+    const scopedTickerSymbols = scopeKeys.length ? scopedStocks.map((stock) => stock.symbol) : [];
+    const requestedTicker = scopeKeys.length === 1
       ? questionTicker(cleanQuestion, scopedStocks[0]?.symbol)
-      : null;
+      : questionTicker(cleanQuestion, activeStock?.symbol);
     const evidenceScope = answerEvidenceScope(
       cleanQuestion,
       requestedTicker,
@@ -1158,7 +1158,7 @@ export function ArthaWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   {message.title ? (
                     <h3>{message.id === "welcome" ? welcomeTitle : message.title}</h3>
                   ) : null}
-                  <p>{message.text}</p>
+                  <MessageBody text={message.text} />
                   {message.citations?.length ? (
                     <div className="citation-row" aria-label="Citations">
                       {message.citations.map((citation) => (
@@ -1798,6 +1798,26 @@ function EmptyState({ title, body }: { title: string; body: string }) {
     <div className="empty-state">
       <strong>{title}</strong>
       <p>{body}</p>
+    </div>
+  );
+}
+
+function MessageBody({ text }: { text: string }) {
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  return (
+    <div className="message-body">
+      {lines.map((line, index) => {
+        const bullet = line.startsWith("- ");
+        const content = bullet ? line.slice(2) : line;
+        const heading = /^(Conclusion|Fundamentals|Recent evidence|Limitations):$/.test(content);
+        return heading ? (
+          <strong key={`${line}-${index}`} className="message-section-heading">{content}</strong>
+        ) : bullet ? (
+          <div key={`${line}-${index}`} className="message-bullet">{content}</div>
+        ) : (
+          <p key={`${line}-${index}`}>{content}</p>
+        );
+      })}
     </div>
   );
 }

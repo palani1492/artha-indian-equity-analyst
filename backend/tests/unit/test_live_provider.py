@@ -78,6 +78,11 @@ def test_live_provider_helpers_are_safe_for_missing_upstream_values() -> None:
     assert provider._decimal(None) is None
 
 
+def test_live_provider_normalizes_fractional_and_percent_values() -> None:
+    assert LiveIndianMarketDataProvider._percentage("0.0174") == Decimal("1.74")
+    assert LiveIndianMarketDataProvider._percentage("1.74") == Decimal("1.74")
+
+
 def test_rss_documents_use_stable_url_identity_for_syndicated_duplicates() -> None:
     provider = LiveIndianMarketDataProvider(rss_feeds=())
     payload = b"""<rss><channel>

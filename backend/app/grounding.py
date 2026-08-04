@@ -45,6 +45,7 @@ QUALITATIVE_CLAIM_WORDS = {
     "undervalued",
     "weak",
 }
+SECTION_HEADINGS = {"Conclusion:", "Fundamentals:", "Recent evidence:", "Limitations:"}
 
 
 class GroundingGuard:
@@ -74,7 +75,7 @@ class GroundingGuard:
             if not indexes and sentence not in {
                 self.FALLBACK,
                 "I updated your investor persona and will use it for future research.",
-            }:
+            } and sentence not in SECTION_HEADINGS:
                 violations.append("claim without citation")
             if numbers and not indexes:
                 violations.append("numeric claim without citation")

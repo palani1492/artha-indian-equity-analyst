@@ -190,6 +190,41 @@
   padding: 34px 30px 24px;
 }
 
+.message-body {
+  display: grid;
+  gap: 8px;
+  line-height: 1.65;
+}
+
+.message-body p {
+  margin: 0;
+}
+
+.message-section-heading {
+  margin-top: 4px;
+  color: var(--accent-strong);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.message-bullet {
+  position: relative;
+  padding-left: 15px;
+}
+
+.message-bullet::before {
+  position: absolute;
+  top: 0.72em;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+}
+
 .research-starter {
   width: min(100%, 600px);
   margin: 28px auto 0;

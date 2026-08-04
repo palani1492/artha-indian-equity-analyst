@@ -242,9 +242,9 @@ class LiveIndianMarketDataProvider:
             raise LookupError(f"No live INR quote available for {symbol}")
         market_cap = info.get("marketCap")
         debt_to_equity = self._decimal(info.get("debtToEquity"))
-        dividend_yield = self._decimal(info.get("dividendYield"))
-        roe = self._decimal(info.get("returnOnEquity"))
-        revenue_growth = self._decimal(info.get("revenueGrowth"))
+        dividend_yield = self._percentage(info.get("dividendYield"))
+        roe = self._percentage(info.get("returnOnEquity"))
+        revenue_growth = self._percentage(info.get("revenueGrowth"))
         change_pct = self._decimal(
             info.get("regularMarketChangePercent")
             or info.get("regularMarketChangePercentRaw")
@@ -263,13 +263,9 @@ class LiveIndianMarketDataProvider:
             debt_to_equity=debt_to_equity / Decimal(100)
             if debt_to_equity is not None
             else None,
-            dividend_yield=dividend_yield * Decimal(100)
-            if dividend_yield is not None
-            else None,
-            roe=roe * Decimal(100) if roe is not None else None,
-            revenue_growth=revenue_growth * Decimal(100)
-            if revenue_growth is not None
-            else None,
+            dividend_yield=dividend_yield,
+            roe=roe,
+            revenue_growth=revenue_growth,
             change_pct=float(change_pct or 0),
         )
 
@@ -450,3 +446,10 @@ class LiveIndianMarketDataProvider:
     @staticmethod
     def _decimal(value: object) -> Decimal | None:
         return Decimal(str(value)) if value is not None else None
+
+    @classmethod
+    def _percentage(cls, value: object) -> Decimal | None:
+        decimal = cls._decimal(value)
+        if decimal is None:
+            return None
+        return decimal * Decimal(100) if abs(decimal) <= Decimal(1) else decimal

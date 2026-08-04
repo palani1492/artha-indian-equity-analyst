@@ -395,7 +395,7 @@ class EquityResearchAgent:
             sentences.append(
                 "No matching recent news was retrieved for this ticker; the fundamentals source above is the latest indexed evidence [1]."
             )
-        return " ".join(sentences) or GroundingGuard.FALLBACK, citations
+        return "\n".join(sentences) or GroundingGuard.FALLBACK, citations
 
     def _constrained_recommendation_draft(
         self,
@@ -470,33 +470,38 @@ class EquityResearchAgent:
             ordered_evidence.extend(source for source in (fundamentals, news) if source)
         selected = self._dedupe_sources(tuple(ordered_evidence))
         citations = self._citations(selected)
-        sentences: list[str] = []
+        sentences: list[str] = ["Fundamentals:"]
         for ticker in tickers:
             fundamentals, news = evidence_by_ticker[ticker]
             stock = await self._repository.get_stock(ticker)
             if stock is not None and fundamentals is not None:
                 source_index = self._source_index(fundamentals, selected)
-                metrics = [f"price is INR {stock.price_inr}"]
+                metrics: list[str] = []
                 if stock.pe_ratio is not None:
-                    metrics.append(f"P/E ratio is {stock.pe_ratio}")
+                    metrics.append(f"P/E is {self._pretty_decimal(stock.pe_ratio)}")
                 if stock.debt_to_equity is not None:
-                    metrics.append(f"debt-to-equity is {stock.debt_to_equity}")
+                    metrics.append(f"debt-to-equity is {self._pretty_decimal(stock.debt_to_equity)}")
                 if stock.roe is not None:
-                    metrics.append(f"return on equity is {stock.roe}%")
+                    metrics.append(f"ROE is {self._pretty_decimal(stock.roe)}%")
                 if stock.revenue_growth is not None:
-                    metrics.append(f"revenue growth is {stock.revenue_growth}%")
+                    metrics.append(f"revenue growth is {self._pretty_decimal(stock.revenue_growth)}%")
                 if stock.dividend_yield is not None:
-                    metrics.append(f"dividend yield is {stock.dividend_yield}%")
+                    metrics.append(f"dividend yield is {self._pretty_decimal(stock.dividend_yield)}%")
                 sentences.append(
-                    f"{stock.name}: {', '.join(metrics)} [{source_index}]."
+                    f"- {stock.name}: {', '.join(metrics) or 'no comparable metrics were indexed'} [{source_index}]."
                 )
             if news is not None:
                 source_index = self._source_index(news, selected)
                 tone = self._tone(news.sentiment)
                 sentences.append(
-                    f"Recent reporting on {ticker} has a {tone} tone [{source_index}]."
+                    f"- {ticker}: recent reporting is tagged {tone} [{source_index}]."
                 )
         return " ".join(sentences) or GroundingGuard.FALLBACK, citations
+
+    @staticmethod
+    def _pretty_decimal(value: Any) -> str:
+        text = format(value, "f")
+        return text.rstrip("0").rstrip(".") if "." in text else text
 
     def _recommendation_draft(
         self,
