@@ -14,6 +14,7 @@ from app.complex_questions import (
 from app.domain.models import (
     ChatResult,
     Citation,
+    ConversationMessage,
     DocumentKind,
     RankedStock,
     SourceDocument,
@@ -32,6 +33,8 @@ from app.repositories.base import ResearchRepository
 class AgentState(TypedDict, total=False):
     user_id: str
     message: str
+    conversation_history: tuple[ConversationMessage, ...]
+    context_message: str | None
     ticker: str | None
     persona_updated: bool
     answer_kind: str
@@ -89,6 +92,7 @@ class EquityResearchAgent:
         ticker: str | None = None,
         *,
         scope_tickers: tuple[str, ...] = (),
+        conversation_history: tuple[ConversationMessage, ...] = (),
     ) -> ChatResult:
         state = await self._graph.ainvoke(
             {
@@ -96,6 +100,7 @@ class EquityResearchAgent:
                 "message": message,
                 "ticker": ticker,
                 "scope_tickers": scope_tickers,
+                "conversation_history": conversation_history,
             }
         )
         return state["result"]
@@ -107,6 +112,7 @@ class EquityResearchAgent:
             embedding = await self._embedder.embed(persona_as_text(updated))
             await self._repository.save_persona(updated, embedding)
         message = state["message"].lower()
+        history_scope = self._history_scope(state.get("conversation_history", ()))
         constraints = parse_complex_question(state["message"])
         answer_kind = self._answer_kind(message, changed)
         if constraints is not None and not changed:
@@ -151,6 +157,10 @@ class EquityResearchAgent:
             "is_recent": recent,
             "is_constrained_recommendation": constraints is not None,
             "constraints": constraints,
+            "context_message": self._history_message(
+                state.get("conversation_history", ())
+            ),
+            "scope_tickers": state.get("scope_tickers", ()) or history_scope,
         }
 
     async def _retrieve_node(self, state: AgentState) -> dict[str, Any]:
@@ -165,8 +175,13 @@ class EquityResearchAgent:
         followed = await self._repository.list_followed_tickers(state["user_id"])
         stocks = await self._repository.list_stocks_for_user(state["user_id"])
         scope_tickers = state.get("scope_tickers", ())
+        resolution_message = " ".join(
+            item
+            for item in (state.get("context_message"), state["message"])
+            if item
+        )
         tickers = scope_tickers or self._requested_tickers(
-            state["message"], followed, stocks, state.get("ticker")
+            resolution_message, followed, stocks, state.get("ticker")
         )
         if not tickers:
             tickers = followed
@@ -760,6 +775,24 @@ class EquityResearchAgent:
         if not ordered and explicit:
             ordered.append(explicit)
         return tuple(ordered)
+
+    @staticmethod
+    def _history_message(
+        history: tuple[ConversationMessage, ...],
+    ) -> str | None:
+        for item in reversed(history):
+            if item.role == "user":
+                return item.text
+        return None
+
+    @staticmethod
+    def _history_scope(
+        history: tuple[ConversationMessage, ...],
+    ) -> tuple[str, ...]:
+        for item in reversed(history):
+            if item.role == "user" and item.scope_tickers:
+                return item.scope_tickers
+        return ()
 
     @classmethod
     def _dedupe_sources(

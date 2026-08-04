@@ -718,6 +718,11 @@ def create_app(container: Container | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
             )
+        conversation_history = (
+            await dependencies.repository.list_conversation_messages(
+                user_id, conversation_id
+            )
+        )[-8:]
         await dependencies.repository.add_conversation_message(
             ConversationMessage(
                 id=uuid4().hex,
@@ -755,6 +760,7 @@ def create_app(container: Container | None = None) -> FastAPI:
             payload.message,
             payload.ticker,
             scope_tickers=payload.tickers,
+            conversation_history=conversation_history,
         )
         await dependencies.repository.add_conversation_message(
             ConversationMessage(
