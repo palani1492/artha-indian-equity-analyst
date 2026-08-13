@@ -658,7 +658,6 @@ class EquityResearchAgent:
     ) -> tuple[str, tuple[Citation, ...]]:
         selected: list[SourceDocument] = []
         fundamentals_by_ticker: dict[str, SourceDocument] = {}
-        news_by_ticker: dict[str, SourceDocument] = {}
         for item in recommendations:
             ticker_sources = [
                 source for source in sources if source.ticker == item.stock.ticker
@@ -671,20 +670,9 @@ class EquityResearchAgent:
                 ),
                 None,
             )
-            news = next(
-                (
-                    source
-                    for source in ticker_sources
-                    if source.kind is DocumentKind.NEWS
-                ),
-                None,
-            )
             if fundamentals:
                 fundamentals_by_ticker[item.stock.ticker] = fundamentals
                 selected.append(fundamentals)
-            if news:
-                news_by_ticker[item.stock.ticker] = news
-                selected.append(news)
         citations = self._citations(tuple(selected))
         index_by_source = {source.id: index for index, source in enumerate(selected, 1)}
         sentences: list[str] = []
@@ -706,21 +694,8 @@ class EquityResearchAgent:
                 else "",
             ]
             sentence = f"{stock.name}: {', '.join(metric for metric in metrics if metric)} [{fundamentals_index}]."
-            news = news_by_ticker.get(stock.ticker)
-            if news:
-                news_index = index_by_source[news.id]
-                tone = (
-                    "positive"
-                    if news.sentiment > 0.15
-                    else "negative"
-                    if news.sentiment < -0.15
-                    else "neutral"
-                )
-                sentence += (
-                    f" Recent reporting on {stock.name} is {tone} [{news_index}]."
-                )
             sentences.append(sentence)
-        return " ".join(sentences) or GroundingGuard.FALLBACK, citations
+        return "\n".join(sentences) or GroundingGuard.FALLBACK, citations
 
     @staticmethod
     def _answer_kind(message: str, persona_changed: bool) -> str:
