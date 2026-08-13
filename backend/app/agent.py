@@ -688,10 +688,10 @@ class EquityResearchAgent:
                 source for source in sources if source.kind is DocumentKind.FUNDAMENTALS
             ]
             citations = self._citations(tuple(selected))
-            sentences = ["Available followed-company fundamentals:"]
+            fallback_sentences = ["Available followed-company fundamentals:"]
             for index, source in enumerate(selected, 1):
-                sentences.append(f"- {source.title} [{index}].")
-            return "\n".join(sentences), citations
+                fallback_sentences.append(f"- {source.title} [{index}].")
+            return "\n".join(fallback_sentences), citations
         citations = self._citations(tuple(selected))
         index_by_source = {source.id: index for index, source in enumerate(selected, 1)}
         sentences: list[str] = []
