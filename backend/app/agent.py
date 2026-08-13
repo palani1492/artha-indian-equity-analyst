@@ -473,6 +473,7 @@ class EquityResearchAgent:
         lines = ["Fundamentals:"]
         for index, source in enumerate(selected, 1):
             content = " ".join(source.content.split()).replace(". ", "; ")
+            content = content.rstrip(".")
             lines.append(f"- {source.title}: {content} [{index}].")
         return "\n".join(lines), citations
 

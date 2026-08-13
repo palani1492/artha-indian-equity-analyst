@@ -32,5 +32,25 @@ async def test_invalid_authoritative_draft_cannot_be_marked_grounded(container) 
 
     result = await container.agent._guard_node(state)
 
-    assert result["result"].answer == GroundingGuard.FALLBACK
     assert result["result"].grounded is True
+    assert result["result"].citations
+    assert "management quality" not in result["result"].answer
+    assert result["result"].grounded is True
+
+
+@pytest.mark.asyncio
+async def test_evidence_inventory_is_grounded(container) -> None:
+    source = SourceDocument.create(
+        ticker="TCS",
+        kind=DocumentKind.FUNDAMENTALS,
+        title="TCS fundamentals",
+        url="https://example.test/tcs",
+        content="TCS price is INR 4,125.50. P/E ratio is 14.2.",
+        published_at=datetime.now(UTC),
+    )
+
+    draft, citations = container.agent._evidence_inventory_draft((source,))
+    result = container.agent._guard.validate(draft, citations, (source,))
+
+    assert result.is_grounded is True
+    assert citations
