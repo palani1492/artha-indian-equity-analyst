@@ -392,7 +392,11 @@ class EquityResearchAgent:
         else:
             requested = state.get("requested_tickers", ())
             ticker = requested[0] if requested else state.get("ticker")
-            draft, citations = await self._research_draft(ticker, sources)
+            draft, citations = await self._research_draft(
+                ticker,
+                sources,
+                include_news=state.get("is_recent", False),
+            )
         generated = await self._generator.generate(draft, sources) if sources else draft
         return {
             "draft": generated,
@@ -453,6 +457,8 @@ class EquityResearchAgent:
         self,
         ticker: str | None,
         sources: tuple[SourceDocument, ...],
+        *,
+        include_news: bool = True,
     ) -> tuple[str, tuple[Citation, ...]]:
         if not sources:
             return GroundingGuard.FALLBACK, ()
@@ -460,8 +466,13 @@ class EquityResearchAgent:
             (source for source in sources if source.kind is DocumentKind.FUNDAMENTALS),
             None,
         )
-        news = next(
-            (source for source in sources if source.kind is DocumentKind.NEWS), None
+        news = (
+            next(
+                (source for source in sources if source.kind is DocumentKind.NEWS),
+                None,
+            )
+            if include_news
+            else None
         )
         selected = tuple(
             source for source in (fundamentals, news) if source is not None
@@ -493,7 +504,7 @@ class EquityResearchAgent:
             sentences.append(
                 f"The latest retrieved reporting is tagged {tone}, with event impact '{news.impact}' and event type '{news.event_tag}' [{news_index}]."
             )
-        elif fundamentals:
+        elif fundamentals and include_news:
             sentences.append(
                 "No matching recent news was retrieved for this ticker; the fundamentals source above is the latest indexed evidence [1]."
             )

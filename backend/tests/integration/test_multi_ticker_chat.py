@@ -57,6 +57,25 @@ def test_message_ticker_extraction_scopes_retrieval_without_ui_ticker(
     assert all("tcs" not in citation["title"].lower() for citation in body["citations"])
 
 
+def test_plain_price_question_keeps_fundamentals_citation(
+    client, auth_headers
+) -> None:
+    client.post("/api/v1/stocks/TCS/follow", headers=auth_headers)
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={"message": "What is the current price of TCS?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["grounded"] is True
+    assert body["citations"]
+    assert "Tata Consultancy Services" in body["answer"]
+    assert "I don't have that in the ingested data." not in body["answer"]
+
+
 def test_explicit_scope_tickers_override_active_ticker(client, auth_headers) -> None:
     for ticker in ("TCS", "INFY"):
         client.post(f"/api/v1/stocks/{ticker}/follow", headers=auth_headers)
