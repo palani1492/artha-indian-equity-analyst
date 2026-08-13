@@ -439,6 +439,15 @@ class EquityResearchAgent:
                 )
                 if authoritative_result.is_grounded:
                     grounded = authoritative_result
+        if grounded.answer == GroundingGuard.FALLBACK and state.get("sources"):
+            evidence_draft, evidence_citations = self._evidence_inventory_draft(
+                state["sources"]
+            )
+            evidence_result = self._guard.validate(
+                evidence_draft, evidence_citations, state["sources"]
+            )
+            if evidence_result.is_grounded:
+                grounded = evidence_result
         return {
             "result": ChatResult(
                 answer=grounded.answer,
@@ -451,6 +460,21 @@ class EquityResearchAgent:
                 metadata=state.get("metadata", {}),
             )
         }
+
+    @staticmethod
+    def _evidence_inventory_draft(
+        sources: tuple[SourceDocument, ...],
+    ) -> tuple[str, tuple[Citation, ...]]:
+        fundamentals = tuple(
+            source for source in sources if source.kind is DocumentKind.FUNDAMENTALS
+        )
+        selected = fundamentals or sources
+        citations = EquityResearchAgent._citations(selected)
+        lines = ["Fundamentals:"]
+        for index, source in enumerate(selected, 1):
+            content = " ".join(source.content.split()).replace(". ", "; ")
+            lines.append(f"- {source.title}: {content} [{index}].")
+        return "\n".join(lines), citations
 
     async def _research_draft(
         self,
