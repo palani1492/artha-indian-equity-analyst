@@ -642,13 +642,9 @@ class EquityResearchAgent:
                 sentences.append(
                     f"- {stock.name}: {', '.join(metrics)} [{source_index}]."
                 )
-            if news is not None:
-                source_index = self._source_index(news, selected)
-                tone = self._tone(news.sentiment)
-                sentences.append(
-                    f"- {ticker}: recent reporting is tagged {tone} [{source_index}]."
-                )
-        return "\n".join(sentences) or GroundingGuard.FALLBACK, citations
+        if len(sentences) == 1:
+            return GroundingGuard.FALLBACK, citations
+        return "\n".join(sentences), citations
 
     @staticmethod
     def _pretty_decimal(value: Any) -> str:
