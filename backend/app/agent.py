@@ -256,13 +256,14 @@ class EquityResearchAgent:
                     "metadata": metadata,
                 }
             ranked = self._ranker.rank(persona, stocks, limit=3)
-            sources = await self._fundamentals_for(
-                tuple(item.stock.ticker for item in ranked)
+            source_tickers = tuple(item.stock.ticker for item in ranked) or tuple(
+                stock.ticker for stock in stocks
             )
+            sources = await self._fundamentals_for(source_tickers)
             return {
                 "recommendations": ranked,
                 "sources": sources,
-                "requested_tickers": tuple(item.stock.ticker for item in ranked),
+                "requested_tickers": source_tickers,
             }
         if not tickers:
             return {"sources": (), "requested_tickers": ()}
@@ -274,12 +275,10 @@ class EquityResearchAgent:
         ):
             sources = await self._evidence_for(tickers)
             return {"sources": sources, "requested_tickers": tickers}
-        query_embedding = await self._embedder.embed(state["message"])
-        sources = await self._repository.search_documents(
-            query_embedding,
-            tickers=tickers,
-            limit=self._retrieval_limit,
-        )
+        # Ticker-scoped factual questions need the indexed fundamentals
+        # snapshot directly. Semantic retrieval can rank an unrelated news
+        # item above the evidence needed for a price or metric answer.
+        sources = await self._fundamentals_for(tickers)
         return {
             "sources": self._fundamentals_first(sources),
             "requested_tickers": tickers,
@@ -516,7 +515,7 @@ class EquityResearchAgent:
         sources: tuple[SourceDocument, ...],
     ) -> tuple[str, tuple[Citation, ...]]:
         draft, citations = self._recommendation_draft(recommendations, sources)
-        if draft == GroundingGuard.FALLBACK:
+        if draft == GroundingGuard.FALLBACK or not recommendations:
             return draft, citations
         first = recommendations[0].stock
         fundamentals = next(
@@ -684,6 +683,15 @@ class EquityResearchAgent:
             if fundamentals:
                 fundamentals_by_ticker[item.stock.ticker] = fundamentals
                 selected.append(fundamentals)
+        if not recommendations:
+            selected = [
+                source for source in sources if source.kind is DocumentKind.FUNDAMENTALS
+            ]
+            citations = self._citations(tuple(selected))
+            sentences = ["Available followed-company fundamentals:"]
+            for index, source in enumerate(selected, 1):
+                sentences.append(f"- {source.title} [{index}].")
+            return "\n".join(sentences), citations
         citations = self._citations(tuple(selected))
         index_by_source = {source.id: index for index, source in enumerate(selected, 1)}
         sentences: list[str] = []

@@ -54,7 +54,13 @@ QUALITATIVE_CLAIM_WORDS = {
     "undervalued",
     "weak",
 }
-SECTION_HEADINGS = {"Conclusion:", "Fundamentals:", "Recent evidence:", "Limitations:"}
+SECTION_HEADINGS = {
+    "Conclusion:",
+    "Fundamentals:",
+    "Recent evidence:",
+    "Limitations:",
+    "Available followed-company fundamentals:",
+}
 
 
 class GroundingGuard:

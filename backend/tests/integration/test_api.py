@@ -429,6 +429,33 @@ def test_plain_language_profile_question_returns_followed_recommendations(
     assert body["citations"]
 
 
+def test_profile_question_with_no_eligible_stock_keeps_fundamentals_evidence(
+    client, auth_headers
+) -> None:
+    assert client.post(
+        "/api/v1/stocks/RELIANCE/follow", headers=auth_headers
+    ).status_code == 201
+    persona = client.patch(
+        "/api/v1/persona",
+        headers=auth_headers,
+        json={"avoid_high_debt": True, "max_debt_to_equity": 0.5},
+    )
+    assert persona.status_code == 200
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={"message": "Which followed company best fits my profile?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recommendations"] == []
+    assert body["citations"]
+    assert "Available followed-company fundamentals" in body["answer"]
+    assert "I don't have that in the ingested data." not in body["answer"]
+
+
 def test_starter_profile_question_returns_followed_recommendations(
     client, auth_headers
 ) -> None:
