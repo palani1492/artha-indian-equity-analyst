@@ -497,7 +497,7 @@ class EquityResearchAgent:
             sentences.append(
                 "No matching recent news was retrieved for this ticker; the fundamentals source above is the latest indexed evidence [1]."
             )
-        return "\n".join(sentences) or GroundingGuard.FALLBACK, citations
+        return " ".join(sentences) or GroundingGuard.FALLBACK, citations
 
     def _constrained_recommendation_draft(
         self,
@@ -585,7 +585,7 @@ class EquityResearchAgent:
                 sentences.append(
                     f"Recent reporting on {ticker} has a {self._tone(news.sentiment)} tone [{index}]."
                 )
-        return " ".join(sentences) or GroundingGuard.FALLBACK, citations
+        return "\n".join(sentences) or GroundingGuard.FALLBACK, citations
 
     async def _comparison_draft(
         self,
@@ -646,7 +646,7 @@ class EquityResearchAgent:
                 sentences.append(
                     f"- {ticker}: recent reporting is tagged {tone} [{source_index}]."
                 )
-        return " ".join(sentences) or GroundingGuard.FALLBACK, citations
+        return "\n".join(sentences) or GroundingGuard.FALLBACK, citations
 
     @staticmethod
     def _pretty_decimal(value: Any) -> str:
