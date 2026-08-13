@@ -426,6 +426,16 @@ class EquityResearchAgent:
             state.get("citations", ()),
             state.get("sources", ()),
         )
+        if grounded.answer == GroundingGuard.FALLBACK:
+            authoritative = state.get("authoritative_draft", "")
+            if authoritative and authoritative != GroundingGuard.FALLBACK:
+                authoritative_result = self._guard.validate(
+                    authoritative,
+                    state.get("citations", ()),
+                    state.get("sources", ()),
+                )
+                if authoritative_result.is_grounded:
+                    grounded = authoritative_result
         return {
             "result": ChatResult(
                 answer=grounded.answer,
