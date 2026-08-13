@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import pytest
 
 from app.domain.models import Citation, DocumentKind, SourceDocument
-from app.grounding import GroundingGuard
 
 
 @pytest.mark.asyncio
