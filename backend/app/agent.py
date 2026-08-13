@@ -266,7 +266,12 @@ class EquityResearchAgent:
             }
         if not tickers:
             return {"sources": (), "requested_tickers": ()}
-        if state.get("is_recent") or state.get("is_comparison") or len(tickers) > 1:
+        if (
+            state.get("is_recent")
+            or state.get("is_comparison")
+            or state.get("answer_kind") == "risk_summary"
+            or len(tickers) > 1
+        ):
             sources = await self._evidence_for(tickers)
             return {"sources": sources, "requested_tickers": tickers}
         query_embedding = await self._embedder.embed(state["message"])
@@ -376,6 +381,10 @@ class EquityResearchAgent:
                 draft, citations = self._recommendation_draft(
                     state.get("recommendations", ()), sources
                 )
+        elif answer_kind == "risk_summary":
+            draft, citations = await self._risk_summary_draft(
+                state.get("requested_tickers", ()), sources
+            )
         elif state.get("is_comparison") or len(state.get("requested_tickers", ())) > 1:
             draft, citations = await self._comparison_draft(
                 state.get("requested_tickers", ()), sources
@@ -519,6 +528,54 @@ class EquityResearchAgent:
             f"Data limitations: The available evidence is {fundamentals.title} {citation}.",
         )
         return " ".join((draft, *sections)), citations
+
+    async def _risk_summary_draft(
+        self,
+        tickers: tuple[str, ...],
+        sources: tuple[SourceDocument, ...],
+    ) -> tuple[str, tuple[Citation, ...]]:
+        selected = self._dedupe_sources(sources)
+        citations = self._citations(selected)
+        sentences: list[str] = []
+        for ticker in tickers:
+            fundamentals = next(
+                (
+                    source
+                    for source in selected
+                    if source.ticker == ticker
+                    and source.kind is DocumentKind.FUNDAMENTALS
+                ),
+                None,
+            )
+            news = next(
+                (
+                    source
+                    for source in selected
+                    if source.ticker == ticker and source.kind is DocumentKind.NEWS
+                ),
+                None,
+            )
+            stock = await self._repository.get_stock(ticker)
+            if stock is not None and fundamentals is not None:
+                metrics = [f"price is INR {stock.price_inr}"]
+                if stock.pe_ratio is not None:
+                    metrics.append(f"P/E ratio is {stock.pe_ratio}")
+                if stock.debt_to_equity is not None:
+                    metrics.append(f"debt-to-equity is {stock.debt_to_equity}")
+                if stock.roe is not None:
+                    metrics.append(f"return on equity is {stock.roe}%")
+                if stock.revenue_growth is not None:
+                    metrics.append(f"revenue growth is {stock.revenue_growth}%")
+                index = self._source_index(fundamentals, selected)
+                sentences.append(
+                    f"{stock.name}: {', '.join(metrics)} [{index}]."
+                )
+            if news is not None:
+                index = self._source_index(news, selected)
+                sentences.append(
+                    f"Recent reporting on {ticker} has a {self._tone(news.sentiment)} tone [{index}]."
+                )
+        return " ".join(sentences) or GroundingGuard.FALLBACK, citations
 
     async def _comparison_draft(
         self,

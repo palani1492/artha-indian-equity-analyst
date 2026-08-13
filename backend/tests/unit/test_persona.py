@@ -29,3 +29,13 @@ def test_irrelevant_chat_does_not_mutate_or_version_persona() -> None:
     )
     assert changed is False
     assert updated == current
+
+
+def test_risk_question_does_not_update_investor_memory() -> None:
+    current = InvestorPersona(user_id="u1")
+    updated, changed = PersonaExtractor().update(
+        current, "What are the main risks for TCS right now?"
+    )
+
+    assert changed is False
+    assert updated == current

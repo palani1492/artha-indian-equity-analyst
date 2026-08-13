@@ -176,7 +176,6 @@ class PersonaExtractor:
                 "i avoid",
                 "remember",
                 "my horizon",
-                "risk",
             )
         )
         return message[:240] if useful else None

@@ -275,6 +275,25 @@ def test_recent_changes_question_returns_news_evidence(client, auth_headers) -> 
     assert len(body["citations"]) >= 1
 
 
+def test_risk_question_returns_research_instead_of_memory_update(
+    client, auth_headers
+) -> None:
+    assert client.post("/api/v1/stocks/TCS/follow", headers=auth_headers).status_code == 201
+
+    response = client.post(
+        "/api/v1/chat",
+        headers=auth_headers,
+        json={"message": "What is the current price of TCS and what are the main risks?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer_kind"] == "risk_summary"
+    assert body["persona_updated"] is False
+    assert "INR" in body["answer"]
+    assert body["citations"]
+
+
 def test_refresh_route_rehydrates_every_followed_quote_and_compacts_sources(
     client, auth_headers
 ) -> None:
