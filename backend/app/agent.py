@@ -626,7 +626,9 @@ class EquityResearchAgent:
             stock = await self._repository.get_stock(ticker)
             if stock is not None and fundamentals is not None:
                 source_index = self._source_index(fundamentals, selected)
-                metrics: list[str] = []
+                metrics: list[str] = [
+                    f"price is INR {self._pretty_decimal(stock.price_inr)}"
+                ]
                 if stock.pe_ratio is not None:
                     metrics.append(f"P/E is {self._pretty_decimal(stock.pe_ratio)}")
                 if stock.debt_to_equity is not None:
@@ -638,7 +640,7 @@ class EquityResearchAgent:
                 if stock.dividend_yield is not None:
                     metrics.append(f"dividend yield is {self._pretty_decimal(stock.dividend_yield)}%")
                 sentences.append(
-                    f"- {stock.name}: {', '.join(metrics) or 'no comparable metrics were indexed'} [{source_index}]."
+                    f"- {stock.name}: {', '.join(metrics)} [{source_index}]."
                 )
             if news is not None:
                 source_index = self._source_index(news, selected)
